@@ -14,7 +14,7 @@ def preinstall():
     # Заменяем значения переменных
     for i in range(len(config_lines)):
         if config_lines[i].startswith('api_id'):
-            config_lines[i] = f'api_id = {api_id}\n'
+            config_lines[i] = f'api_id = \'{api_id}\'\n'
         elif config_lines[i].startswith('api_hash'):
             config_lines[i] = f'api_hash = \'{api_hash}\'\n'
 
