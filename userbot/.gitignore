@@ -161,11 +161,5 @@ cython_debug/
 
 *.session
 *.session-journal
-
-# Исключаем все файлы в userbot/modules, кроме __init__.py
-userbot/modules/*
-!userbot/modules/__init__.py
-
-# Исключаем файл userbot/src/config.py
-userbot/src/config.py
-
+config.py
+userbot/modules/*.py

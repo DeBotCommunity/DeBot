@@ -1,17 +1,19 @@
-import os
-import time
 import importlib
-import subprocess
+import importlib.util
+import os
+import fnmatch
 import sys
+import time
+from pathlib import Path
 
-from rich.console import Console
 import telethon
-from telethon import events
 from art import text2art
+from rich.console import Console
+from telethon import events
 
-from userbot.src.config import *
 from userbot import *
 from userbot.modules import ALL_MODULES
+from userbot.src.config import *
 
 
 def convert_to_fancy_font(text):
@@ -42,6 +44,29 @@ def auto_import_modules():
     console.print(f"-> [modules] - Импортировано модулей: {imported_modules}", style="bold green")
 
 
+async def load_module_sortner(event, file_name, download_path, module_path):
+    path = Path(f"userbot/modules/{file_name}")
+    name = f"userbot.modules.{file_name}"
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    
+    spec.loader.exec_module(mod)
+
+    try:
+        if hasattr(mod, 'info'):
+            info_value = mod.info
+            if info_value['category'] is not None:
+                for i in range(len(info_value['pattern'].split('|'))):
+                    help_info[info_value['category']] += f"\n<code>{info_value['pattern'].split('|')[i]}</code> -> <i>{convert_to_fancy_font(info_value['description'].split('|')[i])}</i>"
+                console.print(f"-> [.addmod] - Добавлен модуль: {file_name.split('.')[0]}", style="bold green")
+                await event.edit(f"✅ <b>Модуль</b> <code>{file_name.split('.')[0]}</code> <b>успешно добавлен</b>", parse_mode="HTML")
+    except ImportError as e:
+        console.print(f"-> [.addmod] - Не удалось импортировать модуль: {module_path}, причина: {e}", style="bold red")
+        os.remove(f'{os.getcwd()}/{download_path}.py')
+    except Exception as e:
+        console.print(f"-> [.addmod] - Произошла ошибка при импорте модуля {module_path}: {str(e)}", style="bold red")
+
+
 @client.on(events.NewMessage(outgoing=True, pattern=".addmod"))
 async def addmod(event):
 
@@ -54,64 +79,37 @@ async def addmod(event):
         if document.mime_type == 'text/x-python':
             file_name = document.attributes[0].file_name
             module_path = f"{module_folder}.{file_name.split('.')[0]}"
-            download_path = module_path.replace(".", "\\")
+            download_path = module_path.replace(".", "/")
 
-            await client.download_media(reply_message, file=f'{os.getcwd()}\\{download_path}.py')
+            await client.download_media(reply_message, file=f'{os.getcwd()}/{download_path}.py')
 
             if module_path in sys.modules:
-                await event.edit(f"→ [.addmod] - Модуль <code>{file_name.split('.')[0]}</code> уже импортирован.", parse_mode="HTML")
-                print(f"→ [.addmod] - Модуль {file_name.split('.')[0]} уже импортирован.")
+                await event.edit(f"❌ Модуль <code>{file_name.split('.')[0]}</code> уже импортирован.", parse_mode="HTML")
+                console.print(f"→ [.addmod] - Модуль {file_name.split('.')[0]} уже импортирован.", style="bold red")
             else:
-                missing_libraries = []
-
-                try:
-                    with open(f'{os.getcwd()}\\{download_path}.py', 'r', encoding='utf-8') as file:
-                        for line in file:
-                            if line.strip().startswith('import ') or line.startswith('from '):
-                                parts = line.split(' ')
-                                if len(parts) > 1:
-                                    module_name = parts[1].split('.')[0]
-                                    if module_name not in sys.modules:
-                                        missing_libraries.append(module_name)
-                except Exception as e:
-                    await event.edit(f'→ [.addmod] - Ошибка при чтении файла: <code>{str(e)}</code>', parse_mode="HTML")
-                    print(f"→ [.addmod] - Ошибка при чтении файла: {str(e)}")
-
-                if missing_libraries:
-                    for lib_name in missing_libraries:
-                        subprocess.run(f"pip install {lib_name}", stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-
-                try:
-                    imported_module = importlib.import_module(module_path)
-
-                    if hasattr(imported_module, 'info'):
-                        info_value = imported_module.info
-                        if info_value['category'] is not None:
-                            for i in range(len(info_value['pattern'].split('|'))):
-                                help_info[info_value['category']] += f"\n<code>{info_value['pattern'].split('|')[i]}</code> -> <i>{convert_to_fancy_font(info_value['description'].split('|')[i])}</i>"
-                            await event.edit(f"→ [.addmod] - Добавлен модуль: <code>{file_name.split('.')[0]}</code>", parse_mode="HTML")
-                            print(f"→ [.addmod] - Добавлен модуль: {file_name.split('.')[0]}")
-                except ImportError as e:
-                    await event.edit(f"'→ [.addmod] - Не удалось импортировать модуль: <code>{module_path}</code>, причина: <b>{e}</b>", parse_mode="HTML")
-                    print(f"→ [.addmod] - Не удалось импортировать модуль: {module_path}, причина: {e}")
-                    os.remove(f'{os.getcwd()}\\{download_path}.py')
-                except Exception as e:
-                    await event.edit(f'→ [.addmod] - Произошла ошибка при импорте модуля <code>{module_path}</code>: <b>{str(e)}</b>', parse_mode="HTML")
-                    print(f"→ [.addmod] - Произошла ошибка при импорте модуля {module_path}: {str(e)}")
+                await load_module_sortner(event, file_name, download_path, module_path)
 
 
 @client.on(events.NewMessage(pattern='.delmod (.+)'))
 async def delmod(event):
     module_name = event.pattern_match.group(1)
-    module_path = f"{module_folder}.{module_name}"
-    delete_path = module_path.replace(".", "\\")
-    path = f"{os.getcwd()}\\{delete_path}.py"
+    module_path = f"userbot.modules.{module_name}"
+    delete_path = module_path.replace(".", "/")
+    path = f"{os.getcwd()}/{delete_path}.py"
 
     if os.path.isfile(path):
         try:
             os.remove(path)
             await event.edit(f"✅ <b>Модуль</b> <code>{module_name}</code> <b>успешно удален</b>", parse_mode="HTML")
             console.print(f"-> [.delmod] - Модуль {module_name} успешно удален", style="bold green")
+
+            for i in client.list_event_handlers():
+                if isinstance(i, events.CallbackQuery) and module_name in i._event.instance.__module__:
+                    client.remove_event_handler(i)
+
+            if module_name in sys.modules:
+                del sys.modules[module_name]
+
         except Exception as e:
             await event.edit(f"❌ <b>Произошла ошибка при удалении модуля</b> <code>{module_name}</code>: <code>{str(e)}</code>", parse_mode="HTML")
             console.print(f"-> [.delmod] - Произошла ошибка при удалении модуля {module_name}: {str(e)}", style="bold red")
