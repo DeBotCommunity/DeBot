@@ -6,5 +6,5 @@
 - `.help` - справка.
 - `.about` - о юзерботе.
 
-## Канал с модулями: [DeBot_userbot](https://t.me/DeBot_userbot)
+## Канал с модулями: [DeBot_userbot](https://t.me/DeBot_userbot) и репозиторий с модулями: [DeBot-Modules](https://github.com/DeBotCommunity/DeBot-modules)
 Предложить модуль в канал или задонатить: @whynothacked
