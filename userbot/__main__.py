@@ -67,9 +67,8 @@ async def load_module_sortner(event, file_name, download_path, module_path):
         console.print(f"-> [.addmod] - Произошла ошибка при импорте модуля {module_path}: {str(e)}", style="bold red")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=".addmod"))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.addmod$'))
 async def addmod(event):
-
     if not event.is_reply:
         return
     reply_message = await event.get_reply_message()
@@ -90,7 +89,7 @@ async def addmod(event):
                 await load_module_sortner(event, file_name, download_path, module_path)
 
 
-@client.on(events.NewMessage(pattern='.delmod (.+)'))
+@client.on(events.NewMessage(pattern=r'^\.delmod (\w+)$'))
 async def delmod(event):
     module_name = event.pattern_match.group(1)
     module_path = f"userbot.modules.{module_name}"
@@ -118,7 +117,7 @@ async def delmod(event):
         console.print(f"-> [.delmod] - Модуль {module_name} не найден", style="bold red")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=".help"))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.help$'))
 async def help_commands(event):
     console.print("-> [.help]")
     await client.edit_message(
@@ -128,7 +127,7 @@ async def help_commands(event):
     )
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=(".about")))
+@client.on(events.NewMessage(outgoing=True, pattern=r'^\.about$'))
 async def awake(event):
     console.print("-> [.about]")
     await client.edit_message(
