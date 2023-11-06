@@ -1,5 +1,5 @@
-api_id = 2109734
-api_hash = "17afc8e13426ae546d94afcb8652a8d8"
+api_id = None
+api_hash = None
 
 module_folder = 'userbot.modules'
 
