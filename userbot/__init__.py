@@ -1,11 +1,19 @@
+import argparse
 import asyncio
+import random
+import string
+
+import socks
+from faker import Faker
 from telethon import TelegramClient
-from telethon.tl.functions.channels import GetParticipantsRequest, JoinChannelRequest
-from telethon.tl.types import ChannelParticipantsSearch
+from telethon.tl.functions.channels import (JoinChannelRequest)
+
 from userbot.src.config import *
 from userbot.src.preinstall import preinstall
-import argparse
-import socks
+
+fake = Faker()
+rand_sys_version = ''.join(random.choice(string.ascii_uppercase) for _ in range(4))
+device_model = random.choice([fake.android_platform_token(), fake.ios_platform_token(), fake.linux_platform_token(), fake.windows_platform_token()])
 
 parser = argparse.ArgumentParser(description="Параметры запуска")
 parser.add_argument("-s", type=str, default="account", help="Путь к сессии")
@@ -39,9 +47,9 @@ if args.p is not None:
     elif args.p[0].lower() == 'socks5':
         proxy_type = socks.SOCKS5
 
-    client = TelegramClient(args.s, api_id, api_hash, proxy=(proxy_type, args.p[1], int(args.p[2]), True, args.p[3] if args.p[3] != '0' else None, args.p[4] if args.p[4] != '0' else None))
+    client = TelegramClient(args.s, api_id, api_hash, proxy=(proxy_type, args.p[1], int(args.p[2]), True, args.p[3] if args.p[3] != '0' else None, args.p[4] if args.p[4] != '0' else None), device_model=device_model, system_version=f"4.16.30-vxDEBOT{rand_sys_version}")
 else:
-    client = TelegramClient(args.s, api_id, api_hash)
+    client = TelegramClient(args.s, api_id, api_hash, device_model=device_model, system_version=f"4.16.30-vxDEBOT{rand_sys_version}")
 
 
 async def start_client():

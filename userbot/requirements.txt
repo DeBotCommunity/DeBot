@@ -1,6 +1,0 @@
-art
-rich
-setuptools
-telethon
-PySocks
-python-socks
