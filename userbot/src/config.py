@@ -1,5 +1,10 @@
-api_id = 2109734
-api_hash = "17afc8e13426ae546d94afcb8652a8d8"
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+api_id = os.getenv('API_ID', None)
+api_hash = os.getenv('API_HASH', None)
 
 module_folder = 'userbot.modules'
 
