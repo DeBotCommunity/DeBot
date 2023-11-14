@@ -5,3 +5,4 @@ telethon
 PySocks
 python-socks
 faker
+python-dotenv
