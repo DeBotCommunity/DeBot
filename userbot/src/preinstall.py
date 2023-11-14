@@ -15,3 +15,4 @@ def preinstall():
         env_file.write(f'API_HASH={api_hash}\n')
     
     return api_id, api_hash
+
