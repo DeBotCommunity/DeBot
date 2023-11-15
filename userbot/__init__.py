@@ -6,7 +6,7 @@ import string
 import socks
 from faker import Faker
 from telethon import TelegramClient
-from telethon.tl.functions.channels import (JoinChannelRequest)
+from telethon.tl.functions.channels import JoinChannelRequest
 
 from userbot.src.config import *
 from userbot.src.preinstall import preinstall

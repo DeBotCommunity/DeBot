@@ -1,10 +1,17 @@
 import os
 from dotenv import load_dotenv
+from userbot.src.encrypt import CryptoUtils
 
 load_dotenv()
 
+key = CryptoUtils.get_hwid()
+
 api_id = os.getenv('API_ID', None)
 api_hash = os.getenv('API_HASH', None)
+
+if api_id is not None and api_hash is not None:
+    api_id = CryptoUtils.decrypt_xor(api_id, key)
+    api_hash = CryptoUtils.decrypt_xor(api_hash, key)
 
 module_folder = 'userbot.modules'
 
