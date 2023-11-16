@@ -6,3 +6,4 @@ PySocks
 python-socks
 faker
 python-dotenv
+wmi
