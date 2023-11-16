@@ -34,4 +34,4 @@ class CryptoUtils:
                 return item.UUID
         else:
             import hashlib
-            return ':'.join(['{:12X}'.format(hashlib.md5(h.encode()).hexdigest()) for h in hashlib.md5(b"".join([open('/etc/machine-id', 'rb').read() for _ in range(3)])).digest()])
+            return ':'.join(['{:12X}'.format(hashlib.md5(str(h).encode()).hexdigest()) for h in hashlib.md5(b"".join([open('/etc/machine-id', 'rb').read() for _ in range(3)])).digest()])
