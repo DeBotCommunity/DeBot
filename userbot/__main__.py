@@ -16,7 +16,7 @@ from userbot.src.config import *
 
 
 def convert_to_fancy_font(text):
-    converted_text = [alphabet.get(char, char) for char in text.lower()]
+    converted_text = [ALPHABET.get(char, char) for char in text.lower()]
     return ''.join(converted_text)
 
 
@@ -25,7 +25,7 @@ def auto_import_modules():
     console.print(f"-> [modules] - Всего модулей: {all_modules}", style="bold green")
     imported_modules = 0
     for module_name in ALL_MODULES:
-        module_path = f"{module_folder}.{module_name}"
+        module_path = f"{MODULE_FOLDER}.{module_name}"
         if not module_path.startswith('.'):
             try:
                 imported_module = importlib.import_module(module_path)
@@ -80,8 +80,8 @@ async def addmod(event):
         if document.mime_type == 'text/x-python':
             file_name = document.attributes[0].file_name
             module_name = file_name.split('.')[0]
-            module_path = f"{module_folder}.{module_name}"
-            download_path = os.path.join(os.getcwd(), module_folder.replace(".", os.sep), f"{module_name}.py")
+            module_path = f"{MODULE_FOLDER}.{module_name}"
+            download_path = os.path.join(os.getcwd(), MODULE_FOLDER.replace(".", os.sep), f"{module_name}.py")
 
             if module_path in sys.modules:
                 await event.edit(f"❌ Модуль <code>{module_name}</code> уже импортирован.", parse_mode="HTML")

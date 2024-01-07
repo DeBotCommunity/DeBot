@@ -1,4 +1,5 @@
 import os
+import subprocess
 
 class CryptoUtils:
     @staticmethod
@@ -33,4 +34,9 @@ class CryptoUtils:
             for item in c.Win32_ComputerSystemProduct():
                 return item.UUID
         else:
-            return "".join([open('/etc/machine-id', 'r').read() for _ in range(3)])
+            try:
+                uuid = subprocess.check_output("sudo dmidecode -s system-uuid", shell=True).strip().decode('utf-8')
+                return uuid
+            except Exception as e:
+                print(f"Failed to get HWID: {e}")
+                return ''

@@ -2,20 +2,31 @@ import os
 from dotenv import load_dotenv
 from userbot.src.encrypt import CryptoUtils
 
+# Load environment variables from .env file
 load_dotenv()
 
-key = CryptoUtils.get_hwid()
+# Retrieve hardware ID for encryption purposes
+key: str = CryptoUtils.get_hwid()
 
-api_id = os.getenv('API_ID', None)
-api_hash = os.getenv('API_HASH', None)
+# API credentials for Telegram
+API_ID_ENV: str = 'API_ID'
+API_HASH_ENV: str = 'API_HASH'
 
-if api_id is not None and api_hash is not None:
-    api_id = CryptoUtils.decrypt_xor(api_id, key)
-    api_hash = CryptoUtils.decrypt_xor(api_hash, key)
+api_id: str = os.getenv(API_ID_ENV)
+api_hash: str = os.getenv(API_HASH_ENV)
 
-module_folder = 'userbot.modules'
+if api_id is None or api_hash is None:
+    raise ValueError(f"Please set the {API_ID_ENV} and {API_HASH_ENV} environment variables.")
 
-alphabet = {
+# Decrypt API credentials
+api_id = CryptoUtils.decrypt_xor(api_id, key)
+api_hash = CryptoUtils.decrypt_xor(api_hash, key)
+
+# Directory where modules are stored
+MODULE_FOLDER: str = 'userbot.modules'
+
+# Custom alphabet for aesthetic purposes
+ALPHABET: dict = {
     "а": "ᴀ", "б": "б", "в": "ʙ", "г": "ᴦ", "д": "д",
     "е": "ᴇ", "ё": "ё", "ж": "ж", "з": "з", "и": "и",
     "к": "ᴋ", "л": "ᴧ", "м": "ʍ", "н": "н", "о": "о",
