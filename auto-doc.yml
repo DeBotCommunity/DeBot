@@ -1,3 +1,0 @@
-              - name: Generate Documentation
-                uses: vargiuscuola/genshdoc@v1.0
-            
