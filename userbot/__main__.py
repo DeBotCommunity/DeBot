@@ -1,7 +1,6 @@
 import importlib
 import importlib.util
 import os
-import fnmatch
 import sys
 import time
 from pathlib import Path
@@ -45,8 +44,9 @@ def auto_import_modules():
 
 
 async def load_module_sortner(event, file_name, download_path, module_path):
+    module_name = file_name.split('.')[0]
     path = Path(f"userbot/modules/{file_name}")
-    name = f"userbot.modules.{file_name}"
+    name = f"userbot.modules.{module_name}"
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     
@@ -56,13 +56,15 @@ async def load_module_sortner(event, file_name, download_path, module_path):
         if hasattr(mod, 'info'):
             info_value = mod.info
             if info_value['category'] is not None:
-                for i in range(len(info_value['pattern'].split('|'))):
-                    help_info[info_value['category']] += f"\n<code>{info_value['pattern'].split('|')[i]}</code> -> <i>{convert_to_fancy_font(info_value['description'].split('|')[i])}</i>"
-                console.print(f"-> [.addmod] - Добавлен модуль: {file_name.split('.')[0]}", style="bold green")
-                await event.edit(f"✅ <b>Модуль</b> <code>{file_name.split('.')[0]}</code> <b>успешно добавлен</b>", parse_mode="HTML")
+                patterns = info_value['pattern'].split('|')
+                descriptions = info_value['description'].split('|')
+                for pattern, description in zip(patterns, descriptions):
+                    help_info[info_value['category']] += f"\n<code>{pattern}</code> -> <i>{convert_to_fancy_font(description)}</i>"
+                console.print(f"-> [.addmod] - Добавлен модуль: {module_name}", style="bold green")
+                await event.edit(f"✅ <b>Модуль</b> <code>{module_name}</code> <b>успешно добавлен</b>", parse_mode="HTML")
     except ImportError as e:
         console.print(f"-> [.addmod] - Не удалось импортировать модуль: {module_path}, причина: {e}", style="bold red")
-        os.remove(f'{os.getcwd()}/{download_path}.py')
+        os.remove(download_path)
     except Exception as e:
         console.print(f"-> [.addmod] - Произошла ошибка при импорте модуля {module_path}: {str(e)}", style="bold red")
 
@@ -77,44 +79,45 @@ async def addmod(event):
         document = reply_message.media.document
         if document.mime_type == 'text/x-python':
             file_name = document.attributes[0].file_name
-            module_path = f"{module_folder}.{file_name.split('.')[0]}"
-            download_path = module_path.replace(".", "/")
-
-            await client.download_media(reply_message, file=f'{os.getcwd()}/{download_path}.py')
+            module_name = file_name.split('.')[0]
+            module_path = f"{module_folder}.{module_name}"
+            download_path = os.path.join(os.getcwd(), module_folder.replace(".", os.sep), f"{module_name}.py")
 
             if module_path in sys.modules:
-                await event.edit(f"❌ Модуль <code>{file_name.split('.')[0]}</code> уже импортирован.", parse_mode="HTML")
-                console.print(f"→ [.addmod] - Модуль {file_name.split('.')[0]} уже импортирован.", style="bold red")
+                await event.edit(f"❌ Модуль <code>{module_name}</code> уже импортирован.", parse_mode="HTML")
+                console.print(f"→ [.addmod] - Модуль {module_name} уже импортирован.", style="bold red")
             else:
+                await client.download_media(reply_message, file=download_path)
                 await load_module_sortner(event, file_name, download_path, module_path)
 
 
 @client.on(events.NewMessage(pattern=r'^\.delmod (\w+)$'))
 async def delmod(event):
-    module_name = event.pattern_match.group(1)
-    module_path = f"userbot.modules.{module_name}"
-    delete_path = module_path.replace(".", "/")
-    path = f"{os.getcwd()}/{delete_path}.py"
+   module_name = event.pattern_match.group(1)
+   module_path = f"userbot.modules.{module_name}"
+   delete_path = module_path.replace(".", "/")
+   path = f"{os.getcwd()}/{delete_path}.py"
 
-    if os.path.isfile(path):
-        try:
-            os.remove(path)
-            await event.edit(f"✅ <b>Модуль</b> <code>{module_name}</code> <b>успешно удален</b>", parse_mode="HTML")
-            console.print(f"-> [.delmod] - Модуль {module_name} успешно удален", style="bold green")
+   if os.path.isfile(path):
+       try:
+           os.remove(path)
+           await event.edit(f"✅ <b>Модуль</b> <code>{module_name}</code> <b>успешно удален</b>", parse_mode="HTML")
+           console.print(f"-> [.delmod] - Модуль {module_name} успешно удален", style="bold green")
 
-            for i in client.list_event_handlers():
-                if isinstance(i, events.CallbackQuery) and module_name in i._event.instance.__module__:
-                    client.remove_event_handler(i)
+           for i in client.list_event_handlers():
+               if isinstance(i, events.CallbackQuery) and module_name in i._event.instance.__module__:
+                  client.remove_event_handler(i)
 
-            if module_name in sys.modules:
-                del sys.modules[module_name]
+           for module in sys.modules.values():
+               if module is not None and hasattr(module, '__name__') and module.__name__ != module_name:
+                  importlib.reload(module)
 
-        except Exception as e:
-            await event.edit(f"❌ <b>Произошла ошибка при удалении модуля</b> <code>{module_name}</code>: <code>{str(e)}</code>", parse_mode="HTML")
-            console.print(f"-> [.delmod] - Произошла ошибка при удалении модуля {module_name}: {str(e)}", style="bold red")
-    else:
-        await event.edit(f"❌ <b>Модуль</b> <code>{module_name}</code> <b>не найден</b>", parse_mode="HTML")
-        console.print(f"-> [.delmod] - Модуль {module_name} не найден", style="bold red")
+       except Exception as e:
+           await event.edit(f"❌ <b>Произошла ошибка при удалении модуля</b> <code>{module_name}</code>: <code>{str(e)}</code>", parse_mode="HTML")
+           console.print(f"-> [.delmod] - Произошла ошибка при удалении модуля {module_name}: {str(e)}", style="bold red")
+   else:
+       await event.edit(f"❌ <b>Модуль</b> <code>{module_name}</code> <b>не найден</b>", parse_mode="HTML")
+       console.print(f"-> [.delmod] - Модуль {module_name} не найден", style="bold red")
 
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^\.help$'))

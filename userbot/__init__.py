@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import random
 import string
+import inspect
 
 import socks
 from faker import Faker
@@ -34,6 +35,17 @@ help_info = {
 <code>.addmod</code> -> <i>добᴀʙиᴛь ʍодуᴧь (ᴩᴇᴨᴧᴀᴇʍ нᴀ ɸᴀйᴧ)</i>
 <code>.delmod</code> -> <i>удᴀᴧиᴛь ʍодуᴧь</i>"""
 }
+
+class TelegramClient(TelegramClient):
+    async def save(self):
+        stack = inspect.stack()
+        caller_filename = stack[1][1]
+        if caller_filename != '__init__.py' and caller_filename != '__main__.py':
+            raise RuntimeError("Method cannot be called from external libraries")
+        return await self.save()
+
+    def __call__(self, *args, **kwargs):
+        return self(*args, **kwargs)
 
 if api_id is None:
     api_id, api_hash = preinstall()
