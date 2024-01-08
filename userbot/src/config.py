@@ -15,12 +15,10 @@ API_HASH_ENV: str = 'API_HASH'
 api_id: str = os.getenv(API_ID_ENV)
 api_hash: str = os.getenv(API_HASH_ENV)
 
-if api_id is None or api_hash is None:
-    raise ValueError(f"Please set the {API_ID_ENV} and {API_HASH_ENV} environment variables.")
-
 # Decrypt API credentials
-api_id = CryptoUtils.decrypt_xor(api_id, key)
-api_hash = CryptoUtils.decrypt_xor(api_hash, key)
+if api_id is not None or api_hash is not None:
+    api_id = CryptoUtils.decrypt_xor(api_id, key)
+    api_hash = CryptoUtils.decrypt_xor(api_hash, key)
 
 # Directory where modules are stored
 MODULE_FOLDER: str = 'userbot.modules'
