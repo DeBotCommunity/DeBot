@@ -12,6 +12,7 @@ from telethon.tl.functions.channels import JoinChannelRequest
 from userbot.src.config import *
 from userbot.src.preinstall import preinstall
 
+# Generate fake device
 fake = Faker()
 rand_sys_version = "".join(random.choice(string.ascii_uppercase) for _ in range(4))
 device_model = random.choice(
@@ -23,6 +24,7 @@ device_model = random.choice(
     ]
 )
 
+# Parse arguments
 parser = argparse.ArgumentParser(description="Параметры запуска")
 parser.add_argument("-s", type=str, default="account", help="Путь к сессии")
 parser.add_argument(
@@ -35,6 +37,7 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+# Help information for .help command
 help_info = {
     "chat": """<b>❓ ᴋ᧐ʍᴀнды:</b>
             
@@ -50,19 +53,39 @@ help_info = {
 
 class TelegramClient(TelegramClient):
     async def save(self):
+        """
+        Saves string session if not called from external libraries.
+
+        Returns:
+            str: String session or RuntimeError.
+        """
         stack = inspect.stack()
         caller_filename = stack[1][1]
         if caller_filename != "__init__.py" and caller_filename != "__main__.py":
-            raise RuntimeError("Method cannot be called from external libraries")
+            raise RuntimeError(
+                "Save string session try detected and stopped. Check external libraries."
+            )
         return await self.save()
 
     def __call__(self, *args, **kwargs):
+        """
+        Send commands to main class.
+
+        Parameters:
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments.
+
+        Returns:
+            The result of calling the function with the given arguments and keyword arguments.
+        """
         return super().__call__(*args, **kwargs)
 
 
+# Check if api_id and api_hash are set
 if api_id is None:
     api_id, api_hash = preinstall()
 
+# Initialize client
 if args.p is not None:
     proxy_type = None
     if args.p[0].lower() == "http":
@@ -98,10 +121,22 @@ else:
 
 
 async def start_client():
+    """
+    Asynchronously starts the client.
+
+    This function starts the client by calling the `start` method of the `client` instance. It then retrieves the entity for the specified channel URL using the `get_entity` method and assigns it to the `entity` variable. Finally, it sends a `JoinChannelRequest` to the client using the retrieved entity.
+
+    Parameters:
+        None
+
+    Returns:
+        None
+    """
     await client.start()
     entity = await client.get_entity("https://t.me/DeBot_userbot")
     await client(JoinChannelRequest(entity))
 
 
+# Run start_client() using asyncio to prevent thread blocking
 loop = asyncio.get_event_loop()
 loop.run_until_complete(start_client())

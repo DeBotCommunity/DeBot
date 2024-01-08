@@ -1,7 +1,14 @@
 import glob
 from os.path import basename, dirname, isfile
 
+
 def __list_all_modules():
+    """
+    Return a list of all module names in the current directory.
+
+    Returns:
+        A list of strings representing the names of all modules in the current directory.
+    """
     mod_paths = glob.glob(f"{dirname(__file__)}/*.py")
     return [
         basename(f)[:-3]
