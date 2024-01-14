@@ -54,20 +54,16 @@ help_info = {
 class TelegramClient(TelegramClient):
     async def save(self):
         """
-        Saves string session if not called from external libraries.
+        Session grab guard.
 
         Returns:
-            str: String session or RuntimeError.
+            None: RuntimeError.
         """
-        stack = inspect.stack()
-        caller_filename = stack[1][1]
-        if caller_filename != "__init__.py" and caller_filename != "__main__.py":
-            raise RuntimeError(
-                "Save string session try detected and stopped. Check external libraries."
-            )
-        return await self.save()
+        raise RuntimeError(
+            "Save string session try detected and stopped. Check external libraries."
+        )
 
-    def __call__(self, *args, **kwargs):
+    async def __call__(self, *args, **kwargs):
         """
         Send commands to main class.
 
@@ -78,7 +74,7 @@ class TelegramClient(TelegramClient):
         Returns:
             The result of calling the function with the given arguments and keyword arguments.
         """
-        return super().__call__(*args, **kwargs)
+        return await super().__call__(*args, **kwargs)
 
 
 # Check if api_id and api_hash are set
