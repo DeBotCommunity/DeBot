@@ -22,7 +22,7 @@ class CryptoUtils:
         return tableau
 
     @staticmethod
-    def encrypt(text: str, keyword: str) -> str:
+    def encrypt(text: str, keyword: str = 'DeBot_33') -> str:
         """
         Encrypts a given text using the extended Vigenère cipher algorithm that includes digits.
 
@@ -45,7 +45,7 @@ class CryptoUtils:
         return result
 
     @staticmethod
-    def decrypt(text: str, keyword: str) -> str:
+    def decrypt(text: str, keyword: str = 'DeBot_33') -> str:
         """
         Decrypts the given text using the extended Vigenère cipher algorithm that includes digits.
 
