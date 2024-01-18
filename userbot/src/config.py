@@ -5,9 +5,6 @@ from userbot.src.encrypt import CryptoUtils
 # Load environment variables from .env file
 load_dotenv()
 
-# Retrieve hardware ID for encryption purposes
-key: str = CryptoUtils.get_mac_address()
-
 # API credentials for Telegram
 API_ID_ENV: str = "API_ID"
 API_HASH_ENV: str = "API_HASH"
@@ -18,8 +15,8 @@ api_hash: str = os.getenv(API_HASH_ENV)
 
 # Decrypt API credentials
 if api_id is not None or api_hash is not None:
-    api_id = CryptoUtils.decrypt_xor(api_id, key)
-    api_hash = CryptoUtils.decrypt_xor(api_hash, key)
+    api_id = CryptoUtils.decrypt(api_id, key)
+    api_hash = CryptoUtils.decrypt(api_hash, key)
 
 # Directory where modules are stored
 MODULE_FOLDER: str = "userbot.modules"
