@@ -1,51 +1,28 @@
 class CryptoUtils:
     @staticmethod
-    def generate_vigenere_tableau():
-        """
-        Generates a Vigenère tableau that includes both letters and digits.
-        """
-        tableau = []
-        for i in range(36):
-            row = []
-            for j in range(36):
-                if 0 <= i < 26:
-                    if 0 <= j < 26:
-                        row.append(chr((i + j) % 26 + 65))
-                    else:
-                        row.append(str((j + i - 26) % 10))
-                else:
-                    if 0 <= j < 26:
-                        row.append(chr((j + i - 10) % 26 + 65))
-                    else:
-                        row.append(str((i + j - 36) % 10))
-            tableau.append(row)
-        return tableau
-
-    @staticmethod
     def encrypt(text: str, keyword: str = 'DeBot_33') -> str:
         """
-        Encrypts a given text using the extended Vigenère cipher algorithm that includes digits.
-
-        :param text: The text to encrypt.
-        :param keyword: The keyword used for encryption.
-        :return: The encrypted text.
+        Encrypts a given text using the Vigenère cipher algorithm.
+        This version supports both letters and digits.
         """
-        tableau = CryptoUtils.generate_vigenere_tableau()
-        keyword_repeated = (keyword * (len(text) // len(keyword) + 1))[:len(text)]
         result = ""
+        keyword_repeated = (keyword * (len(text) // len(keyword) + 1))[:len(text)]
+        alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        len_alphabet = len(alphabet)
 
         for i, char in enumerate(text):
-            if char.isalpha() or char.isdigit():
-                text_index = ord(char.upper()) - 65 if char.isalpha() else ord(char) - 22
-                keyword_index = ord(keyword_repeated[i].upper()) - 65 if keyword_repeated[i].isalpha() else ord(keyword_repeated[i]) - 22
-                result += tableau[keyword_index][text_index]
+            if char.upper() in alphabet:
+                text_index = alphabet.index(char.upper())
+                keyword_index = alphabet.index(keyword_repeated[i].upper())
+                encrypted_index = (text_index + keyword_index) % len_alphabet
+                result += alphabet[encrypted_index]
             else:
                 result += char
 
         return result
 
     @staticmethod
-    def decrypt(text: str, keyword: str = 'DeBot_33') -> str:
+    def decrypt(ciphertext: str, keyword: str = 'DeBot_33') -> str:
         """
         Decrypts the given text using the extended Vigenère cipher algorithm that includes digits.
 
@@ -53,22 +30,18 @@ class CryptoUtils:
         :param keyword: The keyword used for decryption.
         :return: The decrypted text.
         """
-        tableau = CryptoUtils.generate_vigenere_tableau()
-        keyword_repeated = (keyword * (len(text) // len(keyword) + 1))[:len(text)]
         result = ""
+        keyword_repeated = (keyword * (len(ciphertext) // len(keyword) + 1))[:len(ciphertext)]
+        alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        len_alphabet = len(alphabet)
 
-        for i, char in enumerate(text):
-            if char.isalpha() or char.isdigit():
-                keyword_index = ord(keyword_repeated[i].upper()) - 65 if keyword_repeated[i].isalpha() else ord(keyword_repeated[i]) - 22
-                if char.isalpha():
-                    text_row = tableau[keyword_index]
-                    col_index = text_row.index(char.upper())
-                    result += chr(col_index + 65) if col_index < 26 else chr(col_index + 22)
-                else:
-                    text_row = tableau[keyword_index][26:]
-                    col_index = text_row.index(char)
-                    result += chr(col_index + 65) if col_index < 26 else chr(col_index + 22)
+        for i, char in enumerate(ciphertext):
+            if char.upper() in alphabet:
+                text_index = alphabet.index(char.upper())
+                keyword_index = alphabet.index(keyword_repeated[i].upper())
+                decrypted_index = (text_index - keyword_index) % len_alphabet
+                result += alphabet[decrypted_index]
             else:
-                result += char
+                result += char  # Non-alphanumeric characters are added unchanged
 
         return result
