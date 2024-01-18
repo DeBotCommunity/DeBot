@@ -11,12 +11,12 @@ class CryptoUtils:
         len_alphabet = len(alphabet)
 
         for i, char in enumerate(text):
-            if char.upper() in alphabet:
+            try:
                 text_index = alphabet.index(char.upper())
                 keyword_index = alphabet.index(keyword_repeated[i].upper())
                 encrypted_index = (text_index + keyword_index) % len_alphabet
                 result += alphabet[encrypted_index]
-            else:
+            except ValueError:
                 result += char
 
         return result
