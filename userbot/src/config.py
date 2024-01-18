@@ -15,8 +15,8 @@ api_hash: str = os.getenv(API_HASH_ENV)
 
 # Decrypt API credentials
 if api_id is not None or api_hash is not None:
-    api_id = CryptoUtils.decrypt(api_id, key)
-    api_hash = CryptoUtils.decrypt(api_hash, key)
+    api_id = CryptoUtils.decrypt(api_id)
+    api_hash = CryptoUtils.decrypt(api_hash)
 
 # Directory where modules are stored
 MODULE_FOLDER: str = "userbot.modules"
