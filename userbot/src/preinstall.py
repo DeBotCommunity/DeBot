@@ -28,10 +28,8 @@ def preinstall():
         .decode("utf-8")
     )
 
-    key = CryptoUtils.get_mac_address()
-
     with open(".env", "w") as env_file:
-        env_file.write(f"API_ID={CryptoUtils.encrypt(api_id, key)}\n")
-        env_file.write(f"API_HASH={CryptoUtils.encrypt(api_hash, key)}\n")
+        env_file.write(f"API_ID={CryptoUtils.encrypt(api_id)}\n")
+        env_file.write(f"API_HASH={CryptoUtils.encrypt(api_hash)}\n")
 
     return api_id, api_hash
