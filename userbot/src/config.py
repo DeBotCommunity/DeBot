@@ -6,7 +6,7 @@ from userbot.src.encrypt import CryptoUtils
 load_dotenv()
 
 # Retrieve hardware ID for encryption purposes
-key: str = CryptoUtils.get_hwid()
+key: str = CryptoUtils.get_mac_address()
 
 # API credentials for Telegram
 API_ID_ENV: str = "API_ID"

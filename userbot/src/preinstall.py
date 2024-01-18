@@ -28,7 +28,7 @@ def preinstall():
         .decode("utf-8")
     )
 
-    key = CryptoUtils.get_hwid()
+    key = CryptoUtils.get_mac_address()
 
     with open(".env", "w") as env_file:
         env_file.write(f"API_ID={CryptoUtils.encrypt_xor(api_id, key)}\n")

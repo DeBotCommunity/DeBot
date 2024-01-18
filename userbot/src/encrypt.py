@@ -1,5 +1,4 @@
-import os
-
+import uuid
 
 class CryptoUtils:
     @staticmethod
@@ -60,24 +59,10 @@ class CryptoUtils:
         return CryptoUtils.crypto_xor(message, secret)
 
     @staticmethod
-    def get_hwid():
+    def get_mac_address():
         """
-        Retrieves the Hardware ID (HWID) of the current machine.
+        Returns the MAC address of the current machine.
 
-        Returns:
-            str: The HWID of the current machine.
+        :return: A string representing the MAC address.
         """
-        if os.name == "nt":
-            import wmi
-
-            c = wmi.WMI()
-            for item in c.Win32_ComputerSystemProduct():
-                return item.UUID
-        else:
-            import uuid
-
-            try:
-                return str(uuid.getnode())
-            except Exception as e:
-                print(f"Failed to get HWID: {e}")
-                return ""
+        return hex(uuid.getnode()).split('x')[-1]
