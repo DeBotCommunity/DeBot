@@ -43,7 +43,7 @@ def auto_import_modules():
                 imported_module = importlib.import_module(module_path)
                 if hasattr(imported_module, "info"):
                     info_value = imported_module.info
-                    if info_value["category"] != None:
+                    if info_value["category"] != None or info_value["category"] != '':
                         for i in range(len(info_value["pattern"].split("|"))):
                             help_info[
                                 info_value["category"]
@@ -83,13 +83,21 @@ async def load_module_sortner(event, file_name, download_path, module_path):
     """
     module_name = file_name.split(".")[0]
     path = Path(f"userbot/modules/{file_name}")
-    name = f"userbot.modules.{module_name}"
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
 
-    spec.loader.exec_module(mod)
+    if not path.exists():
+        event.edit(f"❌ Файл модуля {file_name} не найден.")
+        return
+
+    name = f"{MODULE_FOLDER}.{module_name}"
+    spec = importlib.util.spec_from_file_location(name, path)
+
+    if spec is None:
+        event.edit(f"❌ Не удалось загрузить спецификацию для {name}.")
+        return
 
     try:
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
         if hasattr(mod, "info"):
             info_value = mod.info
             if info_value["category"] is not None:
@@ -99,27 +107,21 @@ async def load_module_sortner(event, file_name, download_path, module_path):
                     help_info[
                         info_value["category"]
                     ] += f"\n<code>{pattern}</code> -> <i>{convert_to_fancy_font(description)}</i>"
-                console.print(
-                    f"-> [.addmod] - Добавлен модуль: {module_name}", style="bold green"
-                )
-                await event.edit(
-                    f"✅ <b>Модуль</b> <code>{module_name}</code> <b>успешно добавлен</b>",
-                    parse_mode="HTML",
-                )
+        console.print(
+            f"-> [.addmod] - Добавлен модуль: {module_name}", style="bold green"
+        )
+        await event.edit(
+            f"✅ <b>Модуль</b> <code>{module_name}</code> <b>успешно добавлен</b>",
+            parse_mode="HTML",
+        )
+
     except ImportError as e:
-        console.print(
-            f"-> [.addmod] - Не удалось импортировать модуль: {module_path}, причина: {e}",
-            style="bold red",
-        )
-        os.remove(download_path)
+        event.edit(f"❌ Ошибка импорта модуля {module_name}: {e}")
     except Exception as e:
-        console.print(
-            f"-> [.addmod] - Произошла ошибка при импорте модуля {module_path}: {str(e)}",
-            style="bold red",
-        )
+        event.edit(f"❌ Произошла ошибка при обработке модуля {module_name}: {e}")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r"^\.addmod$"))
+@CLIENT.on(events.NewMessage(outgoing=True, pattern=r"^\.addmod$"))
 async def addmod(event):
     """
     Add a module to the bot's runtime environment.
@@ -154,11 +156,11 @@ async def addmod(event):
                     style="bold red",
                 )
             else:
-                await client.download_media(reply_message, file=download_path)
+                await CLIENT.download_media(reply_message, file=download_path)
                 await load_module_sortner(event, file_name, download_path, module_path)
 
 
-@client.on(events.NewMessage(pattern=r"^\.delmod (\w+)$"))
+@CLIENT.on(events.NewMessage(pattern=r"^\.delmod (\w+)$"))
 async def delmod(event):
     """
     Deletes a module from the userbot.
@@ -189,20 +191,16 @@ async def delmod(event):
                 style="bold green",
             )
 
-            for i in client.list_event_handlers():
+            for i in CLIENT.list_event_handlers():
                 if (
-                    isinstance(i, events.CallbackQuery)
-                    and module_name in i._event.instance.__module__
+                    isinstance(i, (events.NewMessage, events.MessageDeleted, events.MessageEdited, events.MessageRead, events.MessagePinned, events.MessageUnpinned, events.UserUpdate))
+                    and module_path in str(i.callback)
                 ):
-                    client.remove_event_handler(i)
+                    CLIENT.remove_event_handler(i)
 
-            for module in sys.modules.values():
-                if (
-                    module is not None
-                    and hasattr(module, "__name__")
-                    and module.__name__ != module_name
-                ):
-                    importlib.reload(module)
+            for name in list(sys.modules):
+                if name.startswith(module_path):
+                    del sys.modules[name]
 
         except Exception as e:
             await event.edit(
@@ -223,7 +221,7 @@ async def delmod(event):
         )
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r"^\.help$"))
+@CLIENT.on(events.NewMessage(outgoing=True, pattern=r"^\.help$"))
 async def help_commands(event):
     """
     Handles the event of a new outgoing message with the pattern ".help".
@@ -235,14 +233,14 @@ async def help_commands(event):
         None
     """
     console.print("-> [.help]")
-    await client.edit_message(
+    await CLIENT.edit_message(
         event.message,
         help_info["chat"] + "\n" + help_info["fun"] + "\n" + help_info["tools"],
         parse_mode="HTML",
     )
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r"^\.about$"))
+@CLIENT.on(events.NewMessage(outgoing=True, pattern=r"^\.about$"))
 async def awake(event):
     """
     A function to handle the event of a new outgoing message with the pattern ".about".
@@ -254,7 +252,7 @@ async def awake(event):
         None
     """
     console.print("-> [.about]")
-    await client.edit_message(
+    await CLIENT.edit_message(
         event.message,
         f"""<b>😈 𝚄𝚜𝚎𝚛𝚋𝚘𝚝 𝚋𝚢: <a href="t.me/whynothacked">𝕯𝖊𝕮𝖔𝖉𝖊𝖉</a></b>
 
@@ -295,4 +293,4 @@ if __name__ == "__main__":
     auto_import_modules()
 
     # Start the userbot
-    loop.run_forever()
+    LOOP.run_forever()

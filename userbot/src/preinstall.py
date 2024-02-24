@@ -1,7 +1,6 @@
 from userbot.src.config import *
 from art import text2art
 from userbot.src.encrypt import CryptoUtils
-import sys
 
 
 def preinstall():
@@ -17,16 +16,8 @@ def preinstall():
     """
     print(text2art("SETUP", font="random", chr_ignore=True))
 
-    api_id = (
-        input("-> [setup] - Введите API ID: ")
-        .encode(sys.stdin.encoding)
-        .decode("utf-8")
-    )
-    api_hash = (
-        input("-> [setup] - Введите API HASH: ")
-        .encode(sys.stdin.encoding)
-        .decode("utf-8")
-    )
+    api_id = input("-> [setup] - Введите API ID: ").strip()
+    api_hash = input("-> [setup] - Введите API HASH: ").strip()
 
     with open(".env", "w") as env_file:
         env_file.write(f"API_ID={CryptoUtils.encrypt(api_id)}\n")

@@ -2,32 +2,40 @@ import argparse
 import asyncio
 import random
 import string
-import inspect
+import sys
+import locale
+import codecs
 
 import socks
 from faker import Faker
 from telethon import TelegramClient
 from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.extensions import html
 
 from userbot.src.config import *
 from userbot.src.preinstall import preinstall
 
-# Generate fake device
-fake = Faker()
-rand_sys_version = "".join(random.choice(string.ascii_uppercase) for _ in range(4))
+
+if sys.getdefaultencoding() != 'utf-8':
+    locale.setlocale(locale.LC_ALL, 'en_US.utf8')
+    codecs.register_error("strict", codecs.ignore_errors)
+
+# Generate FAKE device
+FAKE = Faker()
+sys_version = "".join(random.choice(string.ascii_uppercase) for _ in range(4))
 device_model = random.choice(
     [
-        fake.android_platform_token(),
-        fake.ios_platform_token(),
-        fake.linux_platform_token(),
-        fake.windows_platform_token(),
+        FAKE.android_platform_token(),
+        FAKE.ios_platform_token(),
+        FAKE.linux_platform_token(),
+        FAKE.windows_platform_token(),
     ]
 )
 
 # Parse arguments
-parser = argparse.ArgumentParser(description="Параметры запуска")
-parser.add_argument("-s", type=str, default="account", help="Путь к сессии")
-parser.add_argument(
+PARSER = argparse.ArgumentParser(description="Параметры запуска")
+PARSER.add_argument("-s", type=str, default="account", help="Путь к сессии")
+PARSER.add_argument(
     "-p",
     nargs=5,
     type=str,
@@ -35,7 +43,7 @@ parser.add_argument(
     help="Прокси (Proxy Type, IP, Port, username, password)",
 )
 
-args = parser.parse_args()
+ARGS = PARSER.parse_args()
 
 # Help information for .help command
 help_info = {
@@ -50,8 +58,31 @@ help_info = {
 <code>.delmod</code> -> <i>удᴀᴧиᴛь ʍодуᴧь</i>""",
 }
 
-
 class TelegramClient(TelegramClient):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._parse_mode = html
+
+    @property
+    def parse_mode(self):
+        """
+        A property method that returns the parse mode.
+        """
+        return self._parse_mode
+
+    @parse_mode.setter
+    def parse_mode(self, mode):
+        """
+        Setter for the parse_mode property.
+        
+        Args:
+            mode: The parse mode to be set.
+
+        Returns:
+            None
+        """
+        pass   
+
     async def save(self):
         """
         Session grab guard.
@@ -77,42 +108,42 @@ class TelegramClient(TelegramClient):
         return await super().__call__(*args, **kwargs)
 
 
-# Check if api_id and api_hash are set
-if api_id is None:
-    api_id, api_hash = preinstall()
+# Check if API_ID and API_HASH are set
+if API_ID is None:
+    API_ID, API_HASH = preinstall()
 
 # Initialize client
-if args.p is not None:
-    proxy_type = None
-    if args.p[0].lower() == "http":
-        proxy_type = socks.HTTP
-    elif args.p[0].lower() == "socks4":
-        proxy_type = socks.SOCKS4
-    elif args.p[0].lower() == "socks5":
-        proxy_type = socks.SOCKS5
+if ARGS.p is not None:
+    PROXY_TYPE = None
+    if ARGS.p[0].lower() == "http":
+        PROXY_TYPE = socks.HTTP
+    elif ARGS.p[0].lower() == "socks4":
+        PROXY_TYPE = socks.SOCKS4
+    elif ARGS.p[0].lower() == "socks5":
+        PROXY_TYPE = socks.SOCKS5
 
-    client = TelegramClient(
-        args.s,
-        api_id,
-        api_hash,
+    CLIENT = TelegramClient(
+        ARGS.s,
+        API_ID,
+        API_HASH,
         proxy=(
-            proxy_type,
-            args.p[1],
-            int(args.p[2]),
+            PROXY_TYPE,
+            ARGS.p[1],
+            int(ARGS.p[2]),
             True,
-            args.p[3] if args.p[3] != "0" else None,
-            args.p[4] if args.p[4] != "0" else None,
+            ARGS.p[3] if ARGS.p[3] != "0" else None,
+            ARGS.p[4] if ARGS.p[4] != "0" else None,
         ),
         device_model=device_model,
-        system_version=f"4.16.30-vxDEBOT{rand_sys_version}",
+        system_version=f"4.16.30-vxDEBOT{sys_version}",
     )
 else:
-    client = TelegramClient(
-        args.s,
-        api_id,
-        api_hash,
+    CLIENT = TelegramClient(
+        ARGS.s,
+        API_ID,
+        API_HASH,
         device_model=device_model,
-        system_version=f"4.16.30-vxDEBOT{rand_sys_version}",
+        system_version=f"4.16.30-vxDEBOT{sys_version}",
     )
 
 
@@ -128,11 +159,12 @@ async def start_client():
     Returns:
         None
     """
-    await client.start()
-    entity = await client.get_entity("https://t.me/DeBot_userbot")
-    await client(JoinChannelRequest(entity))
+    await CLIENT.start()
+    entity = await CLIENT.get_entity("https://t.me/DeBot_userbot")
+    await CLIENT(JoinChannelRequest(entity))
 
+client = CLIENT
 
 # Run start_client() using asyncio to prevent thread blocking
-loop = asyncio.get_event_loop()
-loop.run_until_complete(start_client())
+LOOP = asyncio.get_event_loop()
+LOOP.run_until_complete(start_client())
