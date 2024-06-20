@@ -2,6 +2,10 @@
 ![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
 
+![Issues](https://img.shields.io/github/issues/DeBotCommunity/DeBot)
+![GitHub License](https://img.shields.io/github/license/DeBotCommunity/DeBot)
+![GitHub Repo stars](https://img.shields.io/github/stars/DeBotCommunity/DeBot)
+
 ## Установка:
 ```sh
 git clone https://github.com/DeBotCommunity/DeBot.git
