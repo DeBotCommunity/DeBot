@@ -11,4 +11,4 @@ updates:
       all-dependencies:
         patterns:
           - "*"
-        update-types: ["all"]
+        update-types: ["major", "minor", "patch"]
