@@ -8,16 +8,18 @@ import codecs
 
 import socks
 from faker import Faker
-from telethon import TelegramClient
 from telethon.tl.functions.channels import JoinChannelRequest
-from telethon.extensions import html
+from ruamel.yaml import YAML
+from loguru import logger
 
 from userbot.src.config import *
-from userbot.src.preinstall import preinstall
+from userbot.src.setup import setup
+from userbot.src.custom_client import TelegramClient
+from userbot.src.db import AIOPostgresDB
 
 
-if sys.getdefaultencoding() != 'utf-8':
-    locale.setlocale(locale.LC_ALL, 'en_US.utf8')
+if sys.getdefaultencoding() != "utf-8":
+    locale.setlocale(locale.LC_ALL, "en_US.utf8")
     codecs.register_error("strict", codecs.ignore_errors)
 
 # Generate FAKE device
@@ -58,59 +60,29 @@ help_info = {
 <code>.delmod</code> -> <i>удᴀᴧиᴛь ʍодуᴧь</i>""",
 }
 
-class TelegramClient(TelegramClient):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._parse_mode = html
-
-    @property
-    def parse_mode(self):
-        """
-        A property method that returns the parse mode.
-        """
-        return self._parse_mode
-
-    @parse_mode.setter
-    def parse_mode(self, mode):
-        """
-        Setter for the parse_mode property.
-        
-        Args:
-            mode: The parse mode to be set.
-
-        Returns:
-            None
-        """
-        pass   
-
-    async def save(self):
-        """
-        Session grab guard.
-
-        Returns:
-            None: RuntimeError.
-        """
-        raise RuntimeError(
-            "Save string session try detected and stopped. Check external libraries."
-        )
-
-    async def __call__(self, *args, **kwargs):
-        """
-        Send commands to main class.
-
-        Parameters:
-            *args: Variable length argument list.
-            **kwargs: Arbitrary keyword arguments.
-
-        Returns:
-            The result of calling the function with the given arguments and keyword arguments.
-        """
-        return await super().__call__(*args, **kwargs)
-
 
 # Check if API_ID and API_HASH are set
 if API_ID is None:
-    API_ID, API_HASH = preinstall()
+    API_ID, API_HASH = setup()
+
+os.system("docker compose up -d")
+
+with open("Docker-compose.yaml") as f:
+    yaml = YAML(typ="safe")
+    config = yaml.load(f)
+
+postgres_config = config["services"]["database"]
+
+postgres_user = postgres_config["environment"]["POSTGRES_USER"]
+postgres_password = postgres_config["environment"]["POSTGRES_PASSWORD"]
+postgres_db = postgres_config["environment"]["POSTGRES_DB"]
+
+CURSOR = AIOPostgresDB(
+    database=postgres_db,
+    user=postgres_user,
+    password=postgres_password,
+    create_table=TABLE,
+)
 
 # Initialize client
 if ARGS.p is not None:
@@ -163,7 +135,18 @@ async def start_client():
     entity = await CLIENT.get_entity("https://t.me/DeBot_userbot")
     await CLIENT(JoinChannelRequest(entity))
 
+
 client = CLIENT
+
+
+# Функция-обёртка для вызова асинхронного обработчика
+def loguru_async_handler(message):
+    LOOP = asyncio.get_event_loop()
+    LOOP.run_until_complete(AIOPostgresDB()(message))
+
+
+# Добавление обработчика к Loguru
+logger.add(loguru_async_handler, level="INFO")
 
 # Run start_client() using asyncio to prevent thread blocking
 LOOP = asyncio.get_event_loop()

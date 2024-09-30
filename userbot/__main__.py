@@ -1,18 +1,18 @@
+from userbot import *
+from userbot.modules import ALL_MODULES
+from userbot.src.config import *
+
 import importlib
 import importlib.util
 import os
 import sys
 import time
 from pathlib import Path
+from tqdm import tqdm
 
 import telethon
 from art import text2art
-from rich.console import Console
 from telethon import events
-
-from userbot import *
-from userbot.modules import ALL_MODULES
-from userbot.src.config import *
 
 
 def convert_to_fancy_font(text):
@@ -34,38 +34,33 @@ def auto_import_modules():
     Auto import modules and display information about imported modules.
     """
     all_modules = len(ALL_MODULES)
-    console.print(f"-> [modules] - Всего модулей: {all_modules}", style="bold green")
+    logger.info(f"-> [modules] - Всего модулей: {all_modules}")
     imported_modules = 0
-    for module_name in ALL_MODULES:
+    for module_name in tqdm(ALL_MODULES, desc="Импорт модулей", total=all_modules):
         module_path = f"{MODULE_FOLDER}.{module_name}"
         if not module_path.startswith("."):
             try:
                 imported_module = importlib.import_module(module_path)
                 if hasattr(imported_module, "info"):
                     info_value = imported_module.info
-                    if info_value["category"] != None or info_value["category"] != '':
+                    if info_value["category"] != None or info_value["category"] != "":
                         for i in range(len(info_value["pattern"].split("|"))):
                             help_info[
                                 info_value["category"]
                             ] += f"\n<code>{info_value['pattern'].split('|')[i]}</code> -> <i>{convert_to_fancy_font(info_value['description'].split('|')[i])}</i>"
-                console.print(
-                    f"-> [modules] - Импортирован модуль: {module_name}",
-                    style="bold green",
+                logger.info(
+                    f"-> [modules] - Импортирован модуль: {module_name}"
                 )
                 imported_modules += 1
             except ImportError as e:
-                console.print(
-                    f"-> [modules] - Не удалось импортировать модуль: {module_path}, причина: {e}",
-                    style="bold red",
+                logger.error(
+                    f"-> [modules] - Не удалось импортировать модуль: {module_path}, причина: {e}"
                 )
             except Exception as e:
-                console.print(
-                    f"-> [modules] - Произошла ошибка при импорте модуля {module_path}: {str(e)}",
-                    style="bold red",
+                logger.error(
+                    f"-> [modules] - Произошла ошибка при импорте модуля {module_path}: {str(e)}"
                 )
-    console.print(
-        f"-> [modules] - Импортировано модулей: {imported_modules}", style="bold green"
-    )
+    logger.info(f"-> [modules] - Импортировано модулей: {imported_modules}")
 
 
 async def load_module_sortner(event, file_name, download_path, module_path):
@@ -107,9 +102,7 @@ async def load_module_sortner(event, file_name, download_path, module_path):
                     help_info[
                         info_value["category"]
                     ] += f"\n<code>{pattern}</code> -> <i>{convert_to_fancy_font(description)}</i>"
-        console.print(
-            f"-> [.addmod] - Добавлен модуль: {module_name}", style="bold green"
-        )
+        logger.info(f"-> [.addmod] - Добавлен модуль: {module_name}")
         await event.edit(
             f"✅ <b>Модуль</b> <code>{module_name}</code> <b>успешно добавлен</b>",
             parse_mode="HTML",
@@ -128,7 +121,7 @@ async def addmod(event):
 
     Parameters:
         event (Event): The event that triggered the function.
-    
+
     Returns:
         None
     """
@@ -151,9 +144,8 @@ async def addmod(event):
                     f"❌ Модуль <code>{module_name}</code> уже импортирован.",
                     parse_mode="HTML",
                 )
-                console.print(
+                logger.error(
                     f"→ [.addmod] - Модуль {module_name} уже импортирован.",
-                    style="bold red",
                 )
             else:
                 await CLIENT.download_media(reply_message, file=download_path)
@@ -186,16 +178,23 @@ async def delmod(event):
                 f"✅ <b>Модуль</b> <code>{module_name}</code> <b>успешно удален</b>",
                 parse_mode="HTML",
             )
-            console.print(
+            logger.info(
                 f"-> [.delmod] - Модуль {module_name} успешно удален",
-                style="bold green",
             )
 
             for i in CLIENT.list_event_handlers():
-                if (
-                    isinstance(i, (events.NewMessage, events.MessageDeleted, events.MessageEdited, events.MessageRead, events.MessagePinned, events.MessageUnpinned, events.UserUpdate))
-                    and module_path in str(i.callback)
-                ):
+                if isinstance(
+                    i,
+                    (
+                        events.NewMessage,
+                        events.MessageDeleted,
+                        events.MessageEdited,
+                        events.MessageRead,
+                        events.MessagePinned,
+                        events.MessageUnpinned,
+                        events.UserUpdate,
+                    ),
+                ) and module_path in str(i.callback):
                     CLIENT.remove_event_handler(i)
 
             for name in list(sys.modules):
@@ -207,32 +206,29 @@ async def delmod(event):
                 f"❌ <b>Произошла ошибка при удалении модуля</b> <code>{module_name}</code>: <code>{str(e)}</code>",
                 parse_mode="HTML",
             )
-            console.print(
+            logger.error(
                 f"-> [.delmod] - Произошла ошибка при удалении модуля {module_name}: {str(e)}",
-                style="bold red",
             )
     else:
         await event.edit(
             f"❌ <b>Модуль</b> <code>{module_name}</code> <b>не найден</b>",
             parse_mode="HTML",
         )
-        console.print(
-            f"-> [.delmod] - Модуль {module_name} не найден", style="bold red"
-        )
+        logger.error(f"-> [.delmod] - Модуль {module_name} не найден")
 
 
 @CLIENT.on(events.NewMessage(outgoing=True, pattern=r"^\.help$"))
 async def help_commands(event):
     """
     Handles the event of a new outgoing message with the pattern ".help".
-    
+
     Parameters:
         event (events.NewMessage): The event object representing the new message.
-        
+
     Returns:
         None
     """
-    console.print("-> [.help]")
+    logger.info("-> [.help]")
     await CLIENT.edit_message(
         event.message,
         help_info["chat"] + "\n" + help_info["fun"] + "\n" + help_info["tools"],
@@ -244,14 +240,14 @@ async def help_commands(event):
 async def awake(event):
     """
     A function to handle the event of a new outgoing message with the pattern ".about".
-    
+
     Parameters:
         event (events.NewMessage): The event object representing the new message.
-        
+
     Returns:
         None
     """
-    console.print("-> [.about]")
+    logger.info("-> [.about]")
     await CLIENT.edit_message(
         event.message,
         f"""<b>😈 𝚄𝚜𝚎𝚛𝚋𝚘𝚝 𝚋𝚢: <a href="t.me/whynothacked">𝕯𝖊𝕮𝖔𝖉𝖊𝖉</a></b>
@@ -265,29 +261,27 @@ if __name__ == "__main__":
     # Clear the console
     os.system("cls") if os.name == "nt" else os.system("clear")
 
-    # Initialize the console
-    console = Console()
-
     # Print the ASCII art
-    console.print(
-        text2art("DeBot", font="random", chr_ignore=True), style="cyan"
-    ), time.sleep(1)
+    ASCII_ART = text2art("DeBot", font="random", chr_ignore=True)
+    print(f"\033[33m{ASCII_ART}\033[0m")
 
-    console.print(
-        """
-                            coded by @whynothacked""",
-        style="yellow",
-    ), time.sleep(2)
+    time.sleep(1)
+
+    print(
+        """\033[31m
+                            coded by @whynothacked\033[0m"""
+    )
+
+    time.sleep(2)
 
     (
-        console.print(
-            """            • Пропиши .help в любом чате для получения команд бота""",
-            style="red",
+        print(
+            """\033[32m            • Пропиши .help в любом чате для получения команд бота\033[0m"""
         ),
         time.sleep(1),
     )
 
-    console.print("""                           ↓ Снизу будут логи""", style="green")
+    print("""\033[34m                           ↓ Снизу будут логи\033[0m""")
 
     # Import all modules
     auto_import_modules()

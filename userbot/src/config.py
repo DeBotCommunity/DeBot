@@ -81,3 +81,26 @@ ALPHABET: dict = {
     "n": "ɴ",
     "m": "ᴍ",
 }
+
+TABLE = """
+-- Хранилище сессий
+CREATE TABLE sessions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER,
+    session_data TEXT,
+);
+
+-- Конфиг ядра
+CREATE TABLE core_configs (
+    id SERIAL PRIMARY KEY,
+    config_key VARCHAR,
+    config_value TEXT,
+);
+
+-- Логи
+CREATE TABLE logs (
+    id SERIAL PRIMARY KEY,
+    log_level VARCHAR,
+    message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);"""
