@@ -2,19 +2,28 @@ import argparse
 import asyncio
 import random
 import string
-import sys
+import sys # Ensure sys is imported
 import locale
 import codecs
+import os # For os.getenv in db_setup
 
 import socks
 from faker import Faker
-from telethon import TelegramClient
+from telethon import TelegramClient as TelethonTelegramClient # Alias original client
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.extensions import html
 
-from userbot.src.config import *
+from userbot.src.config import * # API_ID, API_HASH are here
 from userbot.src.preinstall import preinstall
 
+# --- New Imports for DB Session ---
+from userbot.src.db_manager import get_db_pool, initialize_database, add_account, get_account, DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME
+from userbot.src.db_session import DbSession
+# from userbot.src.encrypt import CryptoUtils # Keep if used for temporary API_ID/Hash encryption
+
+# Global variable for the current account ID being used
+CURRENT_ACCOUNT_ID = None
+# --- End New Imports ---
 
 if sys.getdefaultencoding() != 'utf-8':
     locale.setlocale(locale.LC_ALL, 'en_US.utf8')
@@ -34,7 +43,7 @@ device_model = random.choice(
 
 # Parse arguments
 PARSER = argparse.ArgumentParser(description="Параметры запуска")
-PARSER.add_argument("-s", type=str, default="account", help="Путь к сессии")
+PARSER.add_argument("-s", type=str, default="account", help="Путь к сессии (legacy, not used with DB session)")
 PARSER.add_argument(
     "-p",
     nargs=5,
@@ -44,6 +53,83 @@ PARSER.add_argument(
 )
 
 ARGS = PARSER.parse_args()
+
+# --- DB Setup and Account Management ---
+# This block is placed before CLIENT instantiation.
+# API_ID and API_HASH are expected to be loaded by "from userbot.src.config import *"
+
+global CURRENT_ACCOUNT_ID # Ensure it refers to the global variable
+
+async def db_setup_and_account_management():
+    global CURRENT_ACCOUNT_ID, API_ID, API_HASH # Ensure access to global API_ID, API_HASH
+
+    # API_ID and API_HASH should be loaded from config.py or preinstall by this point.
+    # config.py should attempt to load from .env. If they are still None, preinstall is the fallback.
+    if API_ID is None or API_HASH is None:
+        print("API_ID or API_HASH is None. Attempting preinstall to get credentials...", file=sys.stderr)
+        _api_id_temp, _api_hash_temp = preinstall()
+        if not _api_id_temp or not _api_hash_temp:
+            print("Critical Error: API_ID and API_HASH could not be obtained via preinstall. Exiting.", file=sys.stderr)
+            sys.exit(1)
+        API_ID = _api_id_temp
+        API_HASH = _api_hash_temp
+        print("API_ID and API_HASH obtained via preinstall for DB setup.")
+
+    # Initialize DB Pool
+    # DB_HOST etc. are imported from db_manager, which should get them from config.py (os.getenv)
+    await get_db_pool(
+        host=DB_HOST, 
+        port=DB_PORT, 
+        user=DB_USER, 
+        password=DB_PASS, 
+        db_name=DB_NAME
+    )
+    await initialize_database()
+
+    ACCOUNT_NAME = os.getenv("DEFAULT_ACCOUNT_NAME", "default_account")
+    account = await get_account(account_name=ACCOUNT_NAME)
+    
+    if not account:
+        # This check is crucial, API_ID and API_HASH must be available.
+        if not API_ID or not API_HASH: 
+            print("Error: API_ID and API_HASH are not set. Cannot create default account.", file=sys.stderr)
+            sys.exit(1)
+
+        # For DB storage (Step 4), API_ID/HASH stored as strings.
+        # Encryption of these in DB is Step 5.
+        # API_ID from config could be int or str, ensure str for DB.
+        final_api_id_for_db = str(API_ID)
+        final_api_hash_for_db = str(API_HASH) # API_HASH from config is likely already str.
+
+        print(f"Creating default account '{ACCOUNT_NAME}'...")
+        # add_account in db_manager expects api_id: str, api_hash: str
+        # It returns the account_id (integer) or None
+        account_id_val = await add_account(
+            api_id=final_api_id_for_db,
+            api_hash=final_api_hash_for_db,
+            account_name=ACCOUNT_NAME
+        )
+        if not account_id_val: # add_account returns the ID now
+            print(f"Error: Failed to create default account '{ACCOUNT_NAME}'. Exiting.", file=sys.stderr)
+            sys.exit(1)
+        CURRENT_ACCOUNT_ID = account_id_val
+        print(f"Default account '{ACCOUNT_NAME}' created with ID: {CURRENT_ACCOUNT_ID}")
+    else:
+        CURRENT_ACCOUNT_ID = account['account_id'] # account is an asyncpg.Record
+        print(f"Using existing account '{ACCOUNT_NAME}' with ID: {CURRENT_ACCOUNT_ID}")
+
+_event_loop = asyncio.get_event_loop()
+if _event_loop.is_running():
+    asyncio.ensure_future(db_setup_and_account_management())
+else:
+    _event_loop.run_until_complete(db_setup_and_account_management())
+
+# Ensure API_ID and API_HASH passed to TelegramClient are the original, non-encrypted values.
+# These are already loaded from config.py.
+if not API_ID or not API_HASH:
+    print("CRITICAL: API_ID or API_HASH is missing after DB setup. Check .env and config.", file=sys.stderr)
+    sys.exit(1)
+# --- End DB Setup ---
 
 # Help information for .help command
 help_info = {
@@ -58,61 +144,51 @@ help_info = {
 <code>.delmod</code> -> <i>удᴀᴧиᴛь ʍодуᴧь</i>""",
 }
 
-class TelegramClient(TelegramClient):
+# Use the aliased TelethonTelegramClient for subclassing
+class TelegramClient(TelethonTelegramClient):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._parse_mode = html
 
     @property
     def parse_mode(self):
-        """
-        A property method that returns the parse mode.
-        """
         return self._parse_mode
 
     @parse_mode.setter
     def parse_mode(self, mode):
-        """
-        Setter for the parse_mode property.
-        
-        Args:
-            mode: The parse mode to be set.
-
-        Returns:
-            None
-        """
         pass   
 
-    async def save(self):
-        """
-        Session grab guard.
-
-        Returns:
-            None: RuntimeError.
-        """
-        raise RuntimeError(
-            "Save string session try detected and stopped. Check external libraries."
-        )
+    # The custom save() method that raised RuntimeError is REMOVED.
 
     async def __call__(self, *args, **kwargs):
-        """
-        Send commands to main class.
-
-        Parameters:
-            *args: Variable length argument list.
-            **kwargs: Arbitrary keyword arguments.
-
-        Returns:
-            The result of calling the function with the given arguments and keyword arguments.
-        """
         return await super().__call__(*args, **kwargs)
 
+# The old "if API_ID is None: API_ID, API_HASH = preinstall()" block is removed
+# as this logic is now part of db_setup_and_account_management or handled by config.py.
 
-# Check if API_ID and API_HASH are set
-if API_ID is None:
-    API_ID, API_HASH = preinstall()
+# --- TelegramClient Instantiation ---
+if CURRENT_ACCOUNT_ID is None:
+    print("Error: CURRENT_ACCOUNT_ID is not set. DB setup or account management failed. Trying to run setup again.", file=sys.stderr)
+    # Attempt to run setup again if it somehow didn't complete or was skipped
+    _event_loop.run_until_complete(db_setup_and_account_management()) # Use the same loop
+    if CURRENT_ACCOUNT_ID is None:
+            print("Critical Error: CURRENT_ACCOUNT_ID still not set after retry. Exiting.", file=sys.stderr)
+            sys.exit(1)
 
-# Initialize client
+db_session = DbSession(account_id=CURRENT_ACCOUNT_ID)
+print(f"DbSession created for account_id: {CURRENT_ACCOUNT_ID}")
+
+# Ensure API_ID is int and API_HASH is str for Telethon.
+# API_ID and API_HASH from config.py should be correctly typed after loading from .env and decryption.
+# Assuming config.py ensures API_ID is int, API_HASH is str. If not, convert here.
+try:
+    telethon_api_id = int(API_ID)
+except ValueError:
+    print(f"CRITICAL: API_ID ('{API_ID}') from config is not a valid integer. Exiting.", file=sys.stderr)
+    sys.exit(1)
+telethon_api_hash = str(API_HASH)
+
+
 if ARGS.p is not None:
     PROXY_TYPE = None
     if ARGS.p[0].lower() == "http":
@@ -123,9 +199,9 @@ if ARGS.p is not None:
         PROXY_TYPE = socks.SOCKS5
 
     CLIENT = TelegramClient(
-        ARGS.s,
-        API_ID,
-        API_HASH,
+        session=db_session,         # Use DbSession instance
+        api_id=telethon_api_id,     # Use correctly typed API_ID
+        api_hash=telethon_api_hash, # Use correctly typed API_HASH
         proxy=(
             PROXY_TYPE,
             ARGS.p[1],
@@ -139,32 +215,48 @@ if ARGS.p is not None:
     )
 else:
     CLIENT = TelegramClient(
-        ARGS.s,
-        API_ID,
-        API_HASH,
+        session=db_session,         # Use DbSession instance
+        api_id=telethon_api_id,     # Use correctly typed API_ID
+        api_hash=telethon_api_hash, # Use correctly typed API_HASH
         device_model=device_model,
         system_version=f"4.16.30-vxDEBOT{sys_version}",
     )
-
+# --- End TelegramClient Instantiation ---
 
 async def start_client():
     """
     Asynchronously starts the client.
-
-    This function starts the client by calling the `start` method of the `client` instance. It then retrieves the entity for the specified channel URL using the `get_entity` method and assigns it to the `entity` variable. Finally, it sends a `JoinChannelRequest` to the client using the retrieved entity.
-
-    Parameters:
-        None
-
-    Returns:
-        None
     """
     await CLIENT.start()
-    entity = await CLIENT.get_entity("https://t.me/DeBot_userbot")
-    await CLIENT(JoinChannelRequest(entity))
+    if await CLIENT.is_user_authorized():
+        print("Client started and user is authorized.")
+        entity = await CLIENT.get_entity("https://t.me/DeBot_userbot")
+        await CLIENT(JoinChannelRequest(entity))
+    else:
+        print("Client started, but user is NOT authorized. Manual login/authentication might be required.", file=sys.stderr)
 
-client = CLIENT
+client = CLIENT # Alias for other modules if they import client from here
 
-# Run start_client() using asyncio to prevent thread blocking
-LOOP = asyncio.get_event_loop()
-LOOP.run_until_complete(start_client())
+# Run start_client() using asyncio
+LOOP = _event_loop # Use the same loop that ran db_setup.
+
+if LOOP.is_closed(): # Should ideally not happen in standard script execution
+    print("Warning: Event loop was closed, re-getting for start_client.", file=sys.stderr)
+    LOOP = asyncio.new_event_loop()
+    asyncio.set_event_loop(LOOP)
+
+try:
+    LOOP.run_until_complete(start_client())
+except Exception as e:
+    print(f"Error during client execution: {e}", file=sys.stderr)
+    # Consider closing DB pool here in case of error during client run
+    # This needs access to the pool, e.g., via db_manager.DB_POOL
+    # if not LOOP.is_closed() and userbot.src.db_manager.DB_POOL is not None:
+    #    LOOP.run_until_complete(userbot.src.db_manager.close_db_pool())
+finally:
+    # Optional: Graceful shutdown of DB pool if the loop is being closed or script ends
+    # print("Script ending. Consider closing DB pool if appropriate.")
+    # if not LOOP.is_closed() and userbot.src.db_manager.DB_POOL is not None:
+    #    LOOP.run_until_complete(userbot.src.db_manager.close_db_pool())
+    pass
+print("Userbot instance has finished running or encountered an error.")

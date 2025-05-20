@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from userbot.src.encrypt import CryptoUtils
+# from userbot.src.encrypt import CryptoUtils # Removed old CryptoUtils import
 
 # Load environment variables from .env file
 load_dotenv()
@@ -10,13 +10,15 @@ API_ID_ENV: str = "API_ID"
 API_HASH_ENV: str = "API_HASH"
 
 # Retrieve API credentials
-API_ID: str = os.getenv(API_ID_ENV)
-API_HASH: str = os.getenv(API_HASH_ENV)
+API_ID: str = os.getenv(API_ID_ENV) # These will be loaded as strings
+API_HASH: str = os.getenv(API_HASH_ENV) # These will be loaded as strings
 
-# Decrypt API credentials
-if API_ID is not None or API_HASH is not None:
-    API_ID = CryptoUtils.decrypt(API_ID)
-    API_HASH = CryptoUtils.decrypt(API_HASH)
+# Decrypt API credentials - REMOVED
+# The old CryptoUtils decryption block is removed.
+# API_ID and API_HASH are now used as plaintext at runtime after loading from .env.
+# The new EncryptionManager will handle encryption/decryption for data stored in the database.
+# For Telethon client, API_ID (as int) and API_HASH (as str) are used directly.
+# Type conversion for API_ID to int happens in userbot/__init__.py before client instantiation.
 
 # Directory where modules are stored
 MODULE_FOLDER: str = "userbot.modules"
