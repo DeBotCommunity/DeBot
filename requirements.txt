@@ -7,3 +7,5 @@ python-socks
 faker
 python-dotenv
 wmi
+asyncpg
+cryptography
