@@ -1,8 +1,9 @@
 import asyncpg
 import logging
 import os
-from typing import Optional # Already used, ensure it's here
-from userbot.src.encrypt import encryption_manager # New import
+import json # Added for module_data serialization
+from typing import Optional, Any # Added Any for module_data value type
+from userbot.src.encrypt import encryption_manager
 
 # Default connection parameters - these should ideally be loaded from environment variables or a config file.
 DEFAULT_DB_HOST = os.getenv("DB_HOST", "localhost")
@@ -135,6 +136,21 @@ async def initialize_database():
             );
             """)
             logger.info("Checked/Created 'logs' table.")
+
+            # Module Data Table
+            await connection.execute("""
+            CREATE TABLE IF NOT EXISTS module_data (
+                module_data_id SERIAL PRIMARY KEY,
+                account_id INTEGER NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
+                module_name VARCHAR(255) NOT NULL,
+                data_key VARCHAR(255) NOT NULL,
+                data_value BYTEA NOT NULL, -- Encrypted JSON string
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (account_id, module_name, data_key)
+            );
+            """)
+            logger.info("Checked/Created 'module_data' table.")
             logger.info("Database initialization complete.")
 
 # --- CRUD Operations for Accounts ---
@@ -576,6 +592,84 @@ async def get_logs(account_id: int = None, limit: int = 100, level: str = None):
         logger.error(f"Error fetching logs: {e}")
         return []
 
+# --- CRUD Operations for Module Data ---
+async def save_module_data(account_id: int, module_name: str, key: str, value: Any) -> bool:
+    pool = await get_db_pool()
+    if not pool: return False
+    try:
+        json_value = json.dumps(value)
+        encrypted_value = encryption_manager.encrypt(json_value.encode('utf-8'))
+        async with pool.acquire() as conn:
+            query = """
+            INSERT INTO module_data (account_id, module_name, data_key, data_value, updated_at)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+            ON CONFLICT (account_id, module_name, data_key) DO UPDATE
+            SET data_value = EXCLUDED.data_value, updated_at = CURRENT_TIMESTAMP;
+            """
+            await conn.execute(query, account_id, module_name, key, encrypted_value)
+            logger.info(f"Saved data for module '{module_name}', key '{key}', account '{account_id}'.")
+            return True
+    except Exception as e:
+        logger.error(f"Error saving data for module '{module_name}', key '{key}', account '{account_id}': {e}", exc_info=True)
+        return False
+
+async def get_module_data(account_id: int, module_name: str, key: str) -> Any:
+    pool = await get_db_pool()
+    if not pool: return None
+    try:
+        async with pool.acquire() as conn:
+            query = "SELECT data_value FROM module_data WHERE account_id = $1 AND module_name = $2 AND data_key = $3;"
+            record = await conn.fetchrow(query, account_id, module_name, key)
+            if record and record['data_value']:
+                decrypted_value = encryption_manager.decrypt(record['data_value'])
+                value = json.loads(decrypted_value.decode('utf-8'))
+                logger.info(f"Retrieved data for module '{module_name}', key '{key}', account '{account_id}'.")
+                return value
+            logger.info(f"No data found for module '{module_name}', key '{key}', account '{account_id}'.")
+            return None
+    except Exception as e:
+        logger.error(f"Error retrieving data for module '{module_name}', key '{key}', account '{account_id}': {e}", exc_info=True)
+        return None
+
+async def delete_module_data(account_id: int, module_name: str, key: str) -> bool:
+    pool = await get_db_pool()
+    if not pool: return False
+    try:
+        async with pool.acquire() as conn:
+            query = "DELETE FROM module_data WHERE account_id = $1 AND module_name = $2 AND data_key = $3;"
+            result = await conn.execute(query, account_id, module_name, key)
+            deleted_count = int(result.split(" ")[1])
+            if deleted_count > 0:
+                logger.info(f"Deleted data for module '{module_name}', key '{key}', account '{account_id}'.")
+                return True
+            logger.warning(f"No data found to delete for module '{module_name}', key '{key}', account '{account_id}'.")
+            return False
+    except Exception as e:
+        logger.error(f"Error deleting data for module '{module_name}', key '{key}', account '{account_id}': {e}", exc_info=True)
+        return False
+
+async def get_all_module_data(account_id: int, module_name: str) -> dict:
+    pool = await get_db_pool()
+    if not pool: return {}
+    results = {}
+    try:
+        async with pool.acquire() as conn:
+            query = "SELECT data_key, data_value FROM module_data WHERE account_id = $1 AND module_name = $2;"
+            records = await conn.fetch(query, account_id, module_name)
+            for record in records:
+                try:
+                    decrypted_value = encryption_manager.decrypt(record['data_value'])
+                    value = json.loads(decrypted_value.decode('utf-8'))
+                    results[record['data_key']] = value
+                except Exception as e_decrypt:
+                    logger.error(f"Error decrypting/deserializing data for module '{module_name}', key '{record['data_key']}', account '{account_id}': {e_decrypt}")
+            logger.info(f"Retrieved all data for module '{module_name}', account '{account_id}'. Found {len(results)} items.")
+            return results
+    except Exception as e:
+        logger.error(f"Error retrieving all data for module '{module_name}', account '{account_id}': {e}", exc_info=True)
+        return {}
+
+
 if __name__ == '__main__':
     # This is an example of how to initialize and use the db_manager.
     # You'd typically call these from other parts of your application.
@@ -707,15 +801,64 @@ if __name__ == '__main__':
                 logger.info(f"  - [{log_entry['timestamp']}] [{log_entry['level']}] {log_entry['message']}")
             
             # --- Test Deletions (optional, be careful with order) ---
-            # if acc_id and mod_id:
-            #     unlinked = await unlink_module_from_account(acc_id, mod_id)
-            #     logger.info(f"Unlinking module {mod_id} from account {acc_id}: {'Success' if unlinked else 'Failed'}")
-            # if mod_id:
-            #     deleted_mod = await delete_module(mod_id)
-            #     logger.info(f"Deleting module {mod_id}: {'Success' if deleted_mod else 'Failed'}")
-            # if acc_id: # This will also delete related sessions and account_module links due to ON DELETE CASCADE
-            #     deleted_acc = await delete_account(acc_id)
-            #     logger.info(f"Deleting account {acc_id}: {'Success' if deleted_acc else 'Failed'}")
+            # ... (existing deletion tests can remain here)
+
+            # --- Test Module Data ---
+            if acc_id: # Ensure we have an account ID
+                test_module_name = "test_module_for_data"
+                
+                # 1. Save some data
+                data1 = {"setting1": "value1", "count": 10}
+                data2 = [1, 2, "string_value", {"nested_key": "nested_val"}]
+                
+                await save_module_data(acc_id, test_module_name, "config_main", data1)
+                await save_module_data(acc_id, test_module_name, "user_list", data2)
+                logger.info(f"Saved initial data for module '{test_module_name}'.")
+
+                # 2. Retrieve one piece of data
+                ret_data1 = await get_module_data(acc_id, test_module_name, "config_main")
+                if ret_data1:
+                    logger.info(f"Retrieved 'config_main' for '{test_module_name}': {ret_data1}")
+                    assert ret_data1 == data1, "Retrieved data does not match original for 'config_main'"
+                else:
+                    logger.error(f"Could not retrieve 'config_main' for '{test_module_name}'.")
+
+                # 3. Retrieve all data for the module
+                all_mod_data = await get_all_module_data(acc_id, test_module_name)
+                logger.info(f"Retrieved all data for '{test_module_name}': {all_mod_data}")
+                assert len(all_mod_data) == 2, f"Expected 2 items, got {len(all_mod_data)}"
+                assert all_mod_data.get("config_main") == data1, "All data retrieval mismatch for 'config_main'"
+                assert all_mod_data.get("user_list") == data2, "All data retrieval mismatch for 'user_list'"
+
+                # 4. Update existing data
+                updated_data1 = {"setting1": "value_updated", "count": 11, "new_field": True}
+                await save_module_data(acc_id, test_module_name, "config_main", updated_data1)
+                ret_updated_data1 = await get_module_data(acc_id, test_module_name, "config_main")
+                logger.info(f"Retrieved updated 'config_main': {ret_updated_data1}")
+                assert ret_updated_data1 == updated_data1, "Updated data does not match"
+
+                # 5. Delete one piece of data
+                delete_result = await delete_module_data(acc_id, test_module_name, "user_list")
+                logger.info(f"Deletion of 'user_list' for '{test_module_name}': {'Success' if delete_result else 'Failed'}")
+                assert delete_result, "Delete operation failed for 'user_list'"
+                
+                ret_after_delete = await get_module_data(acc_id, test_module_name, "user_list")
+                assert ret_after_delete is None, "Data 'user_list' still exists after deletion."
+
+                all_mod_data_after_delete = await get_all_module_data(acc_id, test_module_name)
+                logger.info(f"All data for '{test_module_name}' after deleting one key: {all_mod_data_after_delete}")
+                assert len(all_mod_data_after_delete) == 1, "Expected 1 item after deletion"
+                assert "user_list" not in all_mod_data_after_delete, "'user_list' key still present in all_mod_data"
+                assert all_mod_data_after_delete.get("config_main") == updated_data1
+
+                # 6. Delete remaining data
+                await delete_module_data(acc_id, test_module_name, "config_main")
+                all_mod_data_final = await get_all_module_data(acc_id, test_module_name)
+                assert not all_mod_data_final, "Module data not empty after final delete"
+                logger.info(f"All data for module '{test_module_name}' successfully deleted.")
+
+            else:
+                logger.warning("Skipping module_data tests as acc_id is not available.")
 
 
         except Exception as e:
@@ -731,4 +874,4 @@ if __name__ == '__main__':
     # 2. Set environment variables DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME if not using defaults.
     # 3. Uncomment the line below:
     # asyncio.run(main_test_logic())
-    logger.info("userbot/src/db_manager.py updated for encryption of API creds and session auth_key.")
+    logger.info("userbot/src/db_manager.py updated for module_data storage and encryption of API creds/session auth_key.")

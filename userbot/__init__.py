@@ -58,7 +58,9 @@ ARGS = PARSER.parse_args()
 # This block is placed before CLIENT instantiation.
 # API_ID and API_HASH are expected to be loaded by "from userbot.src.config import *"
 
-global CURRENT_ACCOUNT_ID # Ensure it refers to the global variable
+# Module-level 'global' declaration here is problematic and unnecessary.
+# CURRENT_ACCOUNT_ID is already global by virtue of being defined at the module level.
+# global CURRENT_ACCOUNT_ID # This line (original line 61) causes SyntaxError and should be removed.
 
 async def db_setup_and_account_management():
     global CURRENT_ACCOUNT_ID, API_ID, API_HASH # Ensure access to global API_ID, API_HASH
@@ -197,24 +199,43 @@ if ARGS.p is not None:
         PROXY_TYPE = socks.SOCKS4
     elif ARGS.p[0].lower() == "socks5":
         PROXY_TYPE = socks.SOCKS5
+    else:
+        PROXY_TYPE = None # Explicitly set to None if no match
 
-    CLIENT = TelegramClient(
-        session=db_session,         # Use DbSession instance
-        api_id=telethon_api_id,     # Use correctly typed API_ID
-        api_hash=telethon_api_hash, # Use correctly typed API_HASH
-        proxy=(
-            PROXY_TYPE,
-            ARGS.p[1],
-            int(ARGS.p[2]),
-            True,
-            ARGS.p[3] if ARGS.p[3] != "0" else None,
-            ARGS.p[4] if ARGS.p[4] != "0" else None,
-        ),
-        device_model=device_model,
-        system_version=f"4.16.30-vxDEBOT{sys_version}",
-    )
-else:
-    CLIENT = TelegramClient(
+    # Validate PROXY_TYPE and Port
+    if PROXY_TYPE is None:
+        if ARGS.p[0]: # If a type was provided but it's invalid
+            print(f"Error: Invalid proxy type '{ARGS.p[0]}'. Supported types are http, socks4, socks5. Proxy will not be used.", file=sys.stderr)
+        else: # If type was empty (should not happen with nargs=5 if type is expected)
+            print("Error: Proxy type is missing. Proxy will not be used.", file=sys.stderr)
+        ARGS.p = None # Disable proxy
+
+    if ARGS.p is not None: # Check if proxy is still enabled
+        try:
+            proxy_port = int(ARGS.p[2])
+        except ValueError:
+            print(f"Error: Invalid proxy port '{ARGS.p[2]}'. Port must be an integer. Proxy will not be used.", file=sys.stderr)
+            ARGS.p = None # Disable proxy
+
+    # Proceed with client initialization only if ARGS.p is still valid
+    if ARGS.p is not None:
+        CLIENT = TelegramClient(
+            session=db_session,         # Use DbSession instance
+            api_id=telethon_api_id,     # Use correctly typed API_ID
+            api_hash=telethon_api_hash, # Use correctly typed API_HASH
+            proxy=(
+                PROXY_TYPE,
+                ARGS.p[1],
+                proxy_port, # Use the validated and converted port
+                True,
+                ARGS.p[3] if ARGS.p[3] != "0" else None,
+                ARGS.p[4] if ARGS.p[4] != "0" else None,
+            ),
+            device_model=device_model,
+            system_version=f"4.16.30-vxDEBOT{sys_version}",
+        )
+    else: # ARGS.p was invalidated by checks, or was None initially
+        CLIENT = TelegramClient(
         session=db_session,         # Use DbSession instance
         api_id=telethon_api_id,     # Use correctly typed API_ID
         api_hash=telethon_api_hash, # Use correctly typed API_HASH
