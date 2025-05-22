@@ -70,11 +70,16 @@ async def initialize_database():
                 api_id BYTEA NOT NULL,
                 api_hash BYTEA NOT NULL,
                 account_name VARCHAR(255) UNIQUE,
+                proxy_type TEXT,
+                proxy_ip TEXT,
+                proxy_port INTEGER,
+                proxy_username BYTEA,
+                proxy_password BYTEA,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
             """)
-            logger.info("Checked/Created 'accounts' table.")
+            logger.info("Checked/Created 'accounts' table with proxy support.")
 
             # Sessions Table
             await connection.execute("""
@@ -154,23 +159,49 @@ async def initialize_database():
             logger.info("Database initialization complete.")
 
 # --- CRUD Operations for Accounts ---
-async def add_account(api_id: str, api_hash: str, account_name: str, user_telegram_id: Optional[int] = None):
+async def add_account(
+    api_id: str, 
+    api_hash: str, 
+    account_name: str, 
+    user_telegram_id: Optional[int] = None,
+    proxy_type: Optional[str] = None,
+    proxy_ip: Optional[str] = None,
+    proxy_port: Optional[int] = None,
+    proxy_username: Optional[str] = None,
+    proxy_password: Optional[str] = None
+):
     pool = await get_db_pool()
     if not pool: return None
     try:
         # Encrypt api_id and api_hash before storing
         encrypted_api_id = encryption_manager.encrypt(str(api_id).encode('utf-8'))
         encrypted_api_hash = encryption_manager.encrypt(str(api_hash).encode('utf-8'))
+        
+        encrypted_proxy_username = None
+        if proxy_username:
+            encrypted_proxy_username = encryption_manager.encrypt(proxy_username.encode('utf-8'))
+        
+        encrypted_proxy_password = None
+        if proxy_password:
+            encrypted_proxy_password = encryption_manager.encrypt(proxy_password.encode('utf-8'))
 
         async with pool.acquire() as conn:
             query = """
-            INSERT INTO accounts (api_id, api_hash, account_name, user_telegram_id, updated_at)
-            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+            INSERT INTO accounts (
+                api_id, api_hash, account_name, user_telegram_id, 
+                proxy_type, proxy_ip, proxy_port, proxy_username, proxy_password, 
+                updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
             RETURNING account_id;
             """
             # Use encrypted values in the query
-            result = await conn.fetchval(query, encrypted_api_id, encrypted_api_hash, account_name, user_telegram_id)
-            logger.info(f"Added account '{account_name}' (encrypted) with ID: {result}")
+            result = await conn.fetchval(
+                query, 
+                encrypted_api_id, encrypted_api_hash, account_name, user_telegram_id,
+                proxy_type, proxy_ip, proxy_port, encrypted_proxy_username, encrypted_proxy_password
+            )
+            logger.info(f"Added account '{account_name}' (credentials/proxy encrypted) with ID: {result}")
             return result # Returns the account_id
     except asyncpg.UniqueViolationError:
         logger.warning(f"Account with name '{account_name}' already exists.")
@@ -195,18 +226,69 @@ async def get_account(account_id: int = None, account_name: str = None):
                 record = await conn.fetchrow(query, account_name)
             
             if record:
+                account_data = dict(record)
                 try:
-                    decrypted_api_id = encryption_manager.decrypt(record['api_id']).decode('utf-8')
-                    decrypted_api_hash = encryption_manager.decrypt(record['api_hash']).decode('utf-8')
-                    # Return a new dictionary with decrypted values
-                    return dict(record, api_id=decrypted_api_id, api_hash=decrypted_api_hash)
+                    account_data['api_id'] = encryption_manager.decrypt(record['api_id']).decode('utf-8')
+                    account_data['api_hash'] = encryption_manager.decrypt(record['api_hash']).decode('utf-8')
+
+                    if record['proxy_username']:
+                        account_data['proxy_username'] = encryption_manager.decrypt(record['proxy_username']).decode('utf-8')
+                    if record['proxy_password']:
+                        account_data['proxy_password'] = encryption_manager.decrypt(record['proxy_password']).decode('utf-8')
+                    
+                    return account_data
                 except Exception as e:
-                    logger.error(f"Failed to decrypt API credentials for account {record['account_id']}: {e}")
+                    logger.error(f"Failed to decrypt credentials/proxy for account {record['account_id']}: {e}")
                     return None # Or raise, depending on policy
             return None # No record found
     except Exception as e:
         logger.error(f"Error fetching account (id={account_id}, name={account_name}): {e}")
         return None
+
+async def update_account_proxy_settings(
+    account_id: int, 
+    proxy_type: Optional[str], 
+    proxy_ip: Optional[str], 
+    proxy_port: Optional[int], 
+    encrypted_username: Optional[bytes], 
+    encrypted_password: Optional[bytes]
+) -> bool:
+    pool = await get_db_pool()
+    if not pool: 
+        logger.error("DB pool not available for update_account_proxy_settings")
+        return False
+    
+    query = """
+    UPDATE accounts 
+    SET 
+        proxy_type = $2, 
+        proxy_ip = $3, 
+        proxy_port = $4, 
+        proxy_username = $5, 
+        proxy_password = $6, 
+        updated_at = CURRENT_TIMESTAMP 
+    WHERE account_id = $1;
+    """
+    try:
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                query, 
+                account_id, 
+                proxy_type, 
+                proxy_ip, 
+                proxy_port, 
+                encrypted_username, 
+                encrypted_password
+            )
+            updated_count = int(result.split(" ")[1])
+            if updated_count > 0:
+                logger.info(f"Successfully updated proxy settings for account ID: {account_id}")
+                return True
+            logger.warning(f"No account found with ID: {account_id} to update proxy settings, or data was the same.")
+            return False # No rows affected
+    except Exception as e:
+        logger.error(f"Error updating proxy settings for account ID {account_id}: {e}")
+        return False
 
 async def update_account(account_id: int, **kwargs):
     pool = await get_db_pool()
@@ -874,4 +956,4 @@ if __name__ == '__main__':
     # 2. Set environment variables DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME if not using defaults.
     # 3. Uncomment the line below:
     # asyncio.run(main_test_logic())
-    logger.info("userbot/src/db_manager.py updated for module_data storage and encryption of API creds/session auth_key.")
+    logger.info("userbot/src/db_manager.py updated for per-account proxy settings and encryption of API creds/session auth_key/proxy creds.")
