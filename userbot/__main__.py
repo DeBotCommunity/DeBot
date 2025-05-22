@@ -4,6 +4,8 @@ import os
 import sys
 import time
 from pathlib import Path
+import gc
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import telethon
 from art import text2art
@@ -12,6 +14,7 @@ from telethon import events
 
 # Specific imports from userbot package & modules
 from userbot import CLIENT, LOOP, help_info, CURRENT_ACCOUNT_ID, MODULE_FOLDER, ALPHABET
+from userbot.src.module_info import ModuleInfo # Import the new class
 from userbot.src.db_manager import (
     get_active_modules_for_account,
     add_module as db_add_module,
@@ -24,14 +27,21 @@ from userbot.src.db_manager import (
 # Global console object, will be initialized in __main__
 console: Console = None
 
+async def perform_garbage_collection():
+    gc.collect()
+    if console: # Ensure console is available
+        console.print("-> [system] - Performed scheduled garbage collection.", style="dim blue")
+    else:
+        print("-> [system] - Performed scheduled garbage collection (console not available).")
+
 def convert_to_fancy_font(text):
     converted_text = [ALPHABET.get(char, char) for char in text.lower()]
     return "".join(converted_text)
 
 LOADED_MODULES_CACHE = {} 
 
-async def load_account_modules():
-    global help_info, console
+async def load_account_modules(current_help_info):
+    global console # help_info is now passed as a parameter
     if CURRENT_ACCOUNT_ID is None:
         if console: console.print("[MODULES] - CRITICAL: CURRENT_ACCOUNT_ID is None. Cannot load modules.", style="bold red")
         else: print("[MODULES] - CRITICAL: CURRENT_ACCOUNT_ID is None. Cannot load modules.")
@@ -83,23 +93,24 @@ async def load_account_modules():
             console.print(f"[MODULES] - Successfully loaded module: {module_name} (as {import_name}) for account {CURRENT_ACCOUNT_ID}", style="bold green")
             loaded_count += 1
 
-            if hasattr(module_obj, "info"):
-                info_value = module_obj.info
-                category = info_value.get("category")
+            if hasattr(module_obj, "info") and isinstance(module_obj.info, ModuleInfo):
+                module_info_instance = module_obj.info
+                category = module_info_instance.category
                 if category:
-                    if category not in help_info:
-                        help_info[category] = f"<b>➖ {category.capitalize()}</b>"
-                    patterns = info_value.get("pattern", "").split("|")
-                    descriptions = info_value.get("description", "").split("|")
-                    for i in range(len(patterns)):
-                        pattern_text = patterns[i].strip()
+                    if category not in current_help_info:
+                        current_help_info[category] = f"<b>➖ {category.capitalize()}</b>"
+                    
+                    # patterns and descriptions are now lists in ModuleInfo
+                    for i in range(len(module_info_instance.patterns)):
+                        pattern_text = module_info_instance.patterns[i].strip()
                         if not pattern_text: continue
-                        desc_text = descriptions[i].strip() if i < len(descriptions) else "No description"
-                        help_info[category] += f"\n<code>{pattern_text}</code> -> <i>{convert_to_fancy_font(desc_text)}</i>"
+                        # Ensure descriptions list is long enough
+                        desc_text = module_info_instance.descriptions[i].strip() if i < len(module_info_instance.descriptions) else "No description"
+                        current_help_info[category] += f"\n<code>{pattern_text}</code> -> <i>{convert_to_fancy_font(desc_text)}</i>"
                 else:
-                    console.print(f"[MODULES] - Module {module_name} has 'info' but no 'category'. Not added to help.", style="yellow")
+                    console.print(f"[MODULES] - Module {module_info_instance.name} has 'info' but no 'category'. Not added to help.", style="yellow")
             else:
-                console.print(f"[MODULES] - Module {module_name} has no 'info' attribute. Not added to help.", style="yellow")
+                console.print(f"[MODULES] - Module {module_name} has no 'info' attribute of type ModuleInfo. Not added to help.", style="yellow")
         except Exception as e:
             console.print(f"[MODULES] - Error loading module {module_name} from {module_path}: {e}", style="bold red")
             if import_name in sys.modules:
@@ -138,11 +149,23 @@ async def addmod(event):
 
     module_name_from_file = file_name[:-3] # Remove .py
 
-    # MODULE_FOLDER is path like "userbot/modules"
+    # Define module directory relative to this script's location
+    # (userbot/__main__.py -> userbot/ is script_dir.parent)
+    script_dir = Path(__file__).resolve().parent 
+    # MODULE_FOLDER from config is "userbot.modules". We want a physical dir "userbot/modules".
+    # So, if script_dir is <project_root>/userbot, modules_dir is <project_root>/userbot/modules
+    modules_dir = script_dir / "modules"
+
     # Ensure the directory exists
-    os.makedirs(MODULE_FOLDER, exist_ok=True)
-    download_path = Path(MODULE_FOLDER) / file_name
-    module_path_for_db = str(download_path) # Relative to repo root
+    modules_dir.mkdir(parents=True, exist_ok=True)
+
+    # download_path is now robustly defined
+    download_path = modules_dir / file_name
+
+    # For storing in DB, use a path relative to the project root (e.g., "userbot/modules/file.py")
+    # Assuming script_dir.parent is the project root (e.g. DeBot/)
+    # This makes module_path_for_db like "userbot/modules/file_name.py"
+    module_path_for_db = str(download_path.relative_to(script_dir.parent))
 
     try:
         await CLIENT.download_media(reply_message, file=str(download_path))
@@ -207,19 +230,22 @@ async def addmod(event):
         LOADED_MODULES_CACHE[module_name_from_file] = module_obj # Cache it
 
         # Update help_info
-        if hasattr(module_obj, "info"):
-            info_value = module_obj.info
-            category = info_value.get("category")
+        if hasattr(module_obj, "info") and isinstance(module_obj.info, ModuleInfo):
+            module_info_instance = module_obj.info
+            category = module_info_instance.category
             if category:
-                if category not in help_info:
+                if category not in help_info: # addmod still uses global help_info
                     help_info[category] = f"<b>➖ {category.capitalize()}</b>"
-                patterns = info_value.get("pattern", "").split("|")
-                descriptions = info_value.get("description", "").split("|")
-                for i in range(len(patterns)):
-                    pattern_text = patterns[i].strip()
+                
+                for i in range(len(module_info_instance.patterns)):
+                    pattern_text = module_info_instance.patterns[i].strip()
                     if not pattern_text: continue
-                    desc_text = descriptions[i].strip() if i < len(descriptions) else "No description"
+                    desc_text = module_info_instance.descriptions[i].strip() if i < len(module_info_instance.descriptions) else "No description"
                     help_info[category] += f"\n<code>{pattern_text}</code> -> <i>{convert_to_fancy_font(desc_text)}</i>"
+            else:
+                console.print(f"[ADDMOD] - Module {module_info_instance.name} has 'info' but no 'category'. Not added to help.", style="yellow")
+        else:
+            console.print(f"[ADDMOD] - Module {module_name_from_file} has no 'info' attribute of type ModuleInfo. Not added to help.", style="yellow")
         
         await event.edit(f"✅ Модуль `{module_name_from_file}` успешно добавлен и загружен для вашего аккаунта.")
         console.print(f"[ADDMOD] - Module {module_name_from_file} dynamically loaded and help_info updated.", style="green")
@@ -340,13 +366,21 @@ if __name__ == "__main__":
 
     try:
         if CURRENT_ACCOUNT_ID is not None:
-             LOOP.run_until_complete(load_account_modules())
+             LOOP.run_until_complete(load_account_modules(help_info))
         else:
             console.print("[MAIN] - Skipping module loading as CURRENT_ACCOUNT_ID is not set.", style="bold red")
     except Exception as e:
         console.print(f"[MAIN] - Error during initial module loading: {e}", style="bold red")
 
     console.print("[MAIN] - Userbot setup complete. Running event loop forever.", style="bold green")
+    
+    # --- Scheduler Setup ---
+    scheduler = AsyncIOScheduler(timezone="UTC") # Or your desired timezone
+    scheduler.add_job(perform_garbage_collection, 'interval', minutes=60, id='gc_job')
+    scheduler.start()
+    console.print("-> [system] - Scheduled garbage collection every 60 minutes.", style="blue")
+    # --- End Scheduler Setup ---
+
     try:
         LOOP.run_forever()
     except KeyboardInterrupt:
@@ -355,4 +389,7 @@ if __name__ == "__main__":
         console.print(f"\n[MAIN] - Userbot event loop stopped due to an error: {e}", style="bold red")
     finally:
         console.print("[MAIN] - Cleaning up and closing resources...", style="yellow")
+        if 'scheduler' in locals() and scheduler.running:
+            scheduler.shutdown()
+            console.print("-> [system] - Garbage collection scheduler shut down.", style="blue")
         console.print("[MAIN] - Userbot shutdown complete.", style="bold green")
