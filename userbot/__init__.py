@@ -7,7 +7,7 @@ import locale
 import codecs
 import os # For os.getenv in db_setup
 
-import socks
+from python_socks import ProxyType as PythonSocksProxyType
 from faker import Faker
 from telethon import TelegramClient as TelethonTelegramClient # Alias original client
 from telethon.tl.functions.channels import JoinChannelRequest
@@ -27,7 +27,6 @@ CURRENT_ACCOUNT_ID = None
 
 if sys.getdefaultencoding() != 'utf-8':
     locale.setlocale(locale.LC_ALL, 'en_US.utf8')
-    codecs.register_error("strict", codecs.ignore_errors)
 
 # Generate FAKE device
 FAKE = Faker()
@@ -158,7 +157,7 @@ class TelegramClient(TelethonTelegramClient):
 
     @parse_mode.setter
     def parse_mode(self, mode):
-        pass   
+        raise AttributeError("Default parse_mode is fixed to HTML and cannot be changed on the client instance. Set parse_mode per-call if needed.")
 
     # The custom save() method that raised RuntimeError is REMOVED.
 
@@ -194,11 +193,11 @@ telethon_api_hash = str(API_HASH)
 if ARGS.p is not None:
     PROXY_TYPE = None
     if ARGS.p[0].lower() == "http":
-        PROXY_TYPE = socks.HTTP
+        PROXY_TYPE = PythonSocksProxyType.HTTP
     elif ARGS.p[0].lower() == "socks4":
-        PROXY_TYPE = socks.SOCKS4
+        PROXY_TYPE = PythonSocksProxyType.SOCKS4
     elif ARGS.p[0].lower() == "socks5":
-        PROXY_TYPE = socks.SOCKS5
+        PROXY_TYPE = PythonSocksProxyType.SOCKS5
     else:
         PROXY_TYPE = None # Explicitly set to None if no match
 
@@ -228,6 +227,7 @@ if ARGS.p is not None:
                 ARGS.p[1],
                 proxy_port, # Use the validated and converted port
                 True,
+                # For proxy authentication, "0" is used as a sentinel value for None (no username/password).
                 ARGS.p[3] if ARGS.p[3] != "0" else None,
                 ARGS.p[4] if ARGS.p[4] != "0" else None,
             ),
