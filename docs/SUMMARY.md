@@ -1,0 +1,18 @@
+# Table of contents
+
+* [DeBot | Модульный Userbot](README.md)
+* [Начало работы](docs/getting-started/README.md)
+  * [Установка и настройка](docs/getting-started/installation.md)
+  * [Первый запуск и добавление аккаунта](docs/getting-started/first-run.md)
+* [Руководство пользователя](docs/user-guide/README.md)
+  * [Управление аккаунтами](docs/user-guide/account-management.md)
+  * [Управление модулями](docs/user-guide/module-management.md)
+  * [Основные команды](docs/user-guide/core-commands.md)
+* [Для разработчиков](docs/for-developers/README.md)
+  * [Создание модулей](docs/for-developers/creating-modules.md)
+  * [Модель безопасности](docs/for-developers/security-model.md)
+* [Архитектура системы](docs/system-architecture/README.md)
+  * [Обзор компонентов](docs/system-architecture/overview.md)
+  * [Переменные окружения (.env)](docs/system-architecture/configuration.md)
+* [Интерфейс командной строки (CLI)](docs/cli/README.md)
+  * [Скрипт manage_account.py](docs/cli/manage-account.md)

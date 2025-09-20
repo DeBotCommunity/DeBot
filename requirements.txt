@@ -9,3 +9,6 @@ python-dotenv
 asyncpg
 cryptography
 APScheduler
+aiohttp
+rarfile
+SQLAlchemy

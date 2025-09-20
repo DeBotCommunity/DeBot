@@ -1,0 +1,33 @@
+services:
+  userbot:
+    ${USERBOT_SERVICE_DEFINITION}
+    container_name: debot_userbot
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      - ./userbot/modules:/app/userbot/modules
+    # 'depends_on' ensures the database is ready before the userbot starts.
+    # This will be removed by setup.py if an external database is used.
+    depends_on:
+      - db
+    # The command no longer needs --accounts, as the bot runs all enabled accounts from the DB
+    command: ["python3", "-m", "userbot"]
+
+  db:
+    image: postgres:13-alpine
+    container_name: debot_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Exposes the database port to the host machine.
+      # Format is HOST_PORT:CONTAINER_PORT
+      - "${DB_PORT}:5432"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
