@@ -24,8 +24,6 @@ cd my_debot
 Внутри папки `my_debot` создайте файл с именем `docker-compose.yml` и скопируйте в него следующее содержимое:
 
 ```yaml
-version: '3.8'
-
 services:
   userbot:
     # Указываем готовый образ из Docker Hub
