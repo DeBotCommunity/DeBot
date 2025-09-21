@@ -20,9 +20,17 @@ from userbot.src.module_parser import parse_module_metadata
 logger: logging.Logger = logging.getLogger(__name__)
 
 # --- Helper ---
-async def get_account_id_from_client(client) -> int | None:
-    # Access the override property directly
-    return client.current_account_id if hasattr(client, 'current_account_id') else None
+async def get_account_id_from_client(client: TelegramClient) -> Optional[int]:
+    """
+    Safely retrieves the account_id associated with a client instance.
+
+    Args:
+        client (TelegramClient): The client instance.
+
+    Returns:
+        Optional[int]: The account ID if available, otherwise None.
+    """
+    return client.current_account_id
 
 # --- Module Management ---
 async def load_account_modules(account_id: int, client_instance: TelegramClient, current_help_info: Dict[str, str]):

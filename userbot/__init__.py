@@ -34,13 +34,14 @@ def _generate_random_device() -> Dict[str, str]:
 
 class TelegramClient(TelethonTelegramClient):
     def __init__(self, *args, **kwargs):
+        # Pop the custom argument before it's passed to the parent constructor
+        self.account_id: Optional[int] = kwargs.pop('account_id', None)
         super().__init__(*args, **kwargs)
         self.lang_code: str = 'ru'
-        self.account_id_override: Optional[int] = kwargs.get('account_id_override')
 
     @property
     def current_account_id(self) -> Optional[int]:
-        return self.account_id_override
+        return self.account_id
     
     async def get_string(self, key: str, module_name: Optional[str] = None, **kwargs) -> str:
         return translator.get_string(self.lang_code, key, module_name, **kwargs)
@@ -140,18 +141,17 @@ async def manage_clients() -> None:
                      encryption_manager.decrypt(account.proxy_password).decode() if account.proxy_password else None
                  )
         
-        session_instance: MemorySession
-        if account.session and account.session.session_file:
-            try:
-                decrypted_session_bytes: bytes = encryption_manager.decrypt(account.session.session_file)
-                session_instance = MemorySession(decrypted_session_bytes)
-            except Exception as e:
-                logger.error(f"Could not decrypt session for '{account.account_name}'. Skipping. Error: {e}")
-                continue
-        else:
-            logger.warning(f"No session file found in DB for account '{account.account_name}'. A new login will be required if client is used directly.")
-            session_instance = MemorySession(None)
+        # Check for session existence before proceeding
+        if not account.session or not account.session.session_file:
+            logger.error(f"Session data is missing in the database for account '{account.account_name}'. Skipping.")
+            continue
 
+        try:
+            decrypted_session_bytes: bytes = encryption_manager.decrypt(account.session.session_file)
+            session_instance = MemorySession(decrypted_session_bytes)
+        except Exception as e:
+            logger.error(f"Could not decrypt or load session for '{account.account_name}'. Skipping. Error: {e}")
+            continue
 
         new_client: TelegramClient = TelegramClient(
             session=session_instance, 
@@ -161,7 +161,7 @@ async def manage_clients() -> None:
             system_version=account.system_version, 
             app_version=account.app_version,
             proxy=proxy_details,
-            account_id_override=account.account_id
+            account_id=account.account_id # Pass custom arg here
         )
         ACTIVE_CLIENTS[account.account_id] = new_client
         tasks.append(start_individual_client(new_client, account))
