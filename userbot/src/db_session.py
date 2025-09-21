@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime, timezone
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, List
 
 from telethon.sessions.abstract import Session
 from telethon.crypto import AuthKey
@@ -159,7 +159,6 @@ class DbSession(Session):
         pass
 
     # --- Deprecated/Legacy Abstract Methods (from older Telethon versions) ---
-    # These might still be abstract in some versions, so we provide them.
     
     def get_update_states(self) -> List[Tuple[int, int, int, int, int, int]]:
         """
