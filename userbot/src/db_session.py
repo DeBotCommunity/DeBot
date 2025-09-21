@@ -4,6 +4,7 @@ from typing import Optional, Tuple, Any, List
 
 from telethon.sessions.abstract import Session
 from telethon.crypto import AuthKey
+from telethon.tl.types import InputPhoto, InputDocument, PeerUser, PeerChat, PeerChannel
 
 import userbot.src.db_manager as db_manager
 from userbot.src.db.session import get_db
@@ -137,13 +138,11 @@ class DbSession(Session):
         self._port = port
 
     def get_update_state(self, entity_id: int) -> Optional[Tuple[int, int, int, int, int]]:
-        """Note: This implementation is global, not per-entity."""
         if self._pts is None:
             return None
         return self._pts, self._qts, self._date, self._seq, 0
 
     def set_update_state(self, entity_id: int, state: Any):
-        """Note: This implementation is global, not per-entity."""
         if isinstance(state.date, datetime):
             date_ts = int(state.date.replace(tzinfo=timezone.utc).timestamp())
         else:
@@ -155,18 +154,57 @@ class DbSession(Session):
         self._seq = state.seq
         
     async def close(self) -> None:
-        """No action needed for DB sessions as the pool is managed globally."""
         pass
 
-    # --- Deprecated/Legacy Abstract Methods (from older Telethon versions) ---
-    
     def get_update_states(self) -> List[Tuple[int, int, int, int, int, int]]:
-        """
-        Returns all update states.
-        Since we store only one global state, we return it for the "self" user entity.
-        The entity ID 0 is a placeholder for "self".
-        """
         if self._pts is None:
             return []
-        # entity_id, pts, qts, date, seq, unread_count
         return [(0, self._pts, self._qts, self._date, self._seq, 0)]
+
+    # --- New Stubs for Entity and File Caching ---
+
+    def process_entities(self, tlo: object) -> None:
+        """
+        This session does not cache entities, so this method does nothing.
+        
+        Args:
+            tlo (object): A TLObject containing entities.
+        """
+        pass
+
+    def get_input_entity(self, key: Any) -> Any:
+        """
+        This session does not cache entities, so this method always fails.
+
+        Args:
+            key (Any): The key to look up an entity.
+
+        Raises:
+            KeyError: Always, as no entities are cached.
+        """
+        raise KeyError("Entity not found in DbSession cache (caching is not implemented).")
+
+    def cache_file(self, md5_digest: bytes, file_size: int, instance: Any) -> None:
+        """
+        This session does not cache files, so this method does nothing.
+
+        Args:
+            md5_digest (bytes): The MD5 digest of the file.
+            file_size (int): The size of the file.
+            instance (Any): The InputFile or InputPhoto instance.
+        """
+        pass
+
+    def get_file(self, md5_digest: bytes, file_size: int, exact: bool = True) -> Optional[Any]:
+        """
+        This session does not cache files, so this method always returns None.
+
+        Args:
+            md5_digest (bytes): The MD5 digest of the file.
+            file_size (int): The size of the file.
+            exact (bool): Whether the file size must be exact.
+        
+        Returns:
+            None: Always, as no files are cached.
+        """
+        return None
