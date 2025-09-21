@@ -1,18 +1,19 @@
 import asyncio
 import logging
 import sys
+import tempfile
 from typing import Dict, Optional, Any, List
 
 from faker import Faker
 from telethon import TelegramClient as TelethonTelegramClient, events
+from telethon.sessions import SQLiteSession
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.errors.rpcerrorlist import UserAlreadyParticipantError
 from python_socks import ProxyType
 
 from userbot.src.config import API_ID, API_HASH, LOG_LEVEL
 from userbot.src.db.session import initialize_database, get_db
-from userbot.src.db.models import Account, Session
-from userbot.src.memory_session import MemorySession
+from userbot.src.db.models import Account
 from userbot.src.encrypt import encryption_manager
 import userbot.src.db_manager as db_manager
 from userbot.src.log_handler import DBLogHandler
@@ -148,7 +149,16 @@ async def manage_clients() -> None:
 
         try:
             decrypted_session_bytes: bytes = encryption_manager.decrypt(account.session.session_file)
-            session_instance = MemorySession(decrypted_session_bytes)
+            
+            # Create a temporary file to hold the session for Telethon
+            # delete=False ensures the file is not deleted when the 'with' block exits.
+            # It will be cleaned up automatically when the Docker container stops.
+            with tempfile.NamedTemporaryFile(suffix=".session", delete=False) as tmp:
+                tmp.write(decrypted_session_bytes)
+                session_path: str = tmp.name
+
+            session_instance = SQLiteSession(session_path)
+
         except Exception as e:
             logger.error(f"Could not decrypt or load session for '{account.account_name}'. Skipping. Error: {e}")
             continue
