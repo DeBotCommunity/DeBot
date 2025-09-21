@@ -65,7 +65,7 @@ async def logs_handler(event: events.NewMessage.Event):
         return
 
     if not args:
-        await event.edit(await event.client.get_string("help_logs_usage"))
+        await event.edit(await event.client.get_string("help_logs_usage"), parse_mode="markdown")
         return
 
     command: str = args[0].lower()
@@ -83,6 +83,8 @@ async def logs_handler(event: events.NewMessage.Event):
                     await conv.send_message(await event.client.get_string("logs_purge_cancelled"))
         except asyncio.TimeoutError:
             await event.respond(await event.client.get_string("delete_timeout"))
+        finally:
+            await event.delete()
         return
 
     # --- Log Fetching Logic ---
@@ -91,8 +93,7 @@ async def logs_handler(event: events.NewMessage.Event):
     level: Optional[str] = None
     source: Optional[str] = None
     
-    # Parse arguments
-    if args[0].lower() in ["head", "tail"]:
+    if args and args[0].lower() in ["head", "tail"]:
         mode = args.pop(0).lower()
     
     if args and args[0].isdigit():
@@ -113,7 +114,6 @@ async def logs_handler(event: events.NewMessage.Event):
         await event.edit(await event.client.get_string("logs_not_found"))
         return
 
-    # Prepare file and caption
     log_content: str = "\n".join(
         f"[{log.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] [{log.level}] [{log.module_name or 'System'}] {log.message}"
         for log in logs_list
@@ -137,7 +137,7 @@ async def logs_handler(event: events.NewMessage.Event):
         file=log_file,
         caption=caption,
         attributes=[DocumentAttributeFilename(filename)],
-        parse_mode="HTML"
+        parse_mode="markdown"
     )
 
 # --- Account Management Handlers ---
@@ -165,7 +165,7 @@ async def list_accounts_handler(event: events.NewMessage.Event):
                         account_id=acc.account_id, status_text=status_text, last_used=last_used
                     )
                 )
-    await event.edit("\n".join(response_lines), parse_mode="html")
+    await event.edit("\n".join(response_lines), parse_mode="markdown")
 
 async def add_account_handler(event: events.NewMessage.Event):
     account_name: str = event.pattern_match.group(1)
@@ -298,47 +298,43 @@ async def set_lang_handler(event: events.NewMessage.Event):
         await event.edit(await event.client.get_string("lang_update_fail"))
 
 async def help_commands_handler(event: events.NewMessage.Event):
-    # Part 1: Management
     help_management = "\n".join([
-        f"<code>.listaccs</code> - {await event.client.get_string('help_listaccs')}",
-        f"<code>.addacc &lt;name&gt;</code> - {await event.client.get_string('help_addacc')}",
-        f"<code>.delacc &lt;name&gt;</code> - {await event.client.get_string('help_delacc')}",
-        f"<code>.toggleacc &lt;name&gt;</code> - {await event.client.get_string('help_toggleacc')}",
-        f"<code>.setlang &lt;code|url&gt;</code> - {await event.client.get_string('help_setlang')}"
+        f"`{'.listaccs'}` - {await event.client.get_string('help_listaccs')}",
+        f"`{'.addacc <name>'}` - {await event.client.get_string('help_addacc')}",
+        f"`{'.delacc <name>'}` - {await event.client.get_string('help_delacc')}",
+        f"`{'.toggleacc <name>'}` - {await event.client.get_string('help_toggleacc')}",
+        f"`{'.setlang <code|url>'}` - {await event.client.get_string('help_setlang')}"
     ])
     
-    # Part 2: Module Management
     help_modules = "\n".join([
-        f"<code>.addmod</code> - {await event.client.get_string('help_addmod')}",
-        f"<code>.delmod &lt;name&gt;</code> - {await event.client.get_string('help_delmod')}",
-        f"<code>.trustmod &lt;name&gt;</code> - {await event.client.get_string('help_trustmod')}",
-        f"<code>.configmod &lt;...&gt;</code> - {await event.client.get_string('help_configmod')}"
+        f"`{'.addmod'}` - {await event.client.get_string('help_addmod')}",
+        f"`{'.delmod <name>'}` - {await event.client.get_string('help_delmod')}",
+        f"`{'.trustmod <name>'}` - {await event.client.get_string('help_trustmod')}",
+        f"`{'.configmod <...>'}` - {await event.client.get_string('help_configmod')}"
     ])
 
-    # Part 3: Utilities
     help_utils = "\n".join([
-        f"<code>.ping</code> - {await event.client.get_string('help_ping')}",
-        f"<code>.restart</code> - {await event.client.get_string('help_restart')}",
-        f"<code>.logs</code> - {await event.client.get_string('help_logs')}",
-        f"<code>.logs purge</code> - {await event.client.get_string('help_logs_purge')}",
-        f"<code>.updatemodules</code> - {await event.client.get_string('help_updatemodules')}",
-        f"<code>.about</code> - {await event.client.get_string('help_about')}"
+        f"`{'.ping'}` - {await event.client.get_string('help_ping')}",
+        f"`{'.restart'}` - {await event.client.get_string('help_restart')}",
+        f"`{'.logs'}` - {await event.client.get_string('help_logs')}",
+        f"`{'.logs purge'}` - {await event.client.get_string('help_logs_purge')}",
+        f"`{'.updatemodules'}` - {await event.client.get_string('help_updatemodules')}",
+        f"`{'.about'}` - {await event.client.get_string('help_about')}"
     ])
 
-    # Combine all parts
     final_text = (
         f"{await event.client.get_string('help_header_management')}\n{help_management}\n\n"
         f"{await event.client.get_string('help_header_modules')}\n{help_modules}\n\n"
         f"{await event.client.get_string('help_header_utils')}\n{help_utils}"
     )
 
-    await event.edit(final_text, parse_mode="HTML")
+    await event.edit(final_text, parse_mode="markdown")
 
 async def about_command_handler(event: events.NewMessage.Event):
-    await event.edit(await event.client.get_string("about_text"), parse_mode="HTML")
+    await event.edit(await event.client.get_string("about_text"), parse_mode="markdown")
 
 async def restart_handler(event: events.NewMessage.Event):
-    await event.edit(await event.client.get_string("restarting_now"))
+    await event.edit(await event.client.get_string("restarting_now"), parse_mode="markdown")
     await asyncio.sleep(1)
     sys.exit(0)
 
@@ -362,4 +358,4 @@ async def ping_handler(event: events.NewMessage.Event):
         server_api=f"{api_latency:.2f}",
         total=f"{total_latency:.2f}"
     )
-    await event.edit(response_text, parse_mode="HTML")
+    await event.edit(response_text, parse_mode="markdown")
