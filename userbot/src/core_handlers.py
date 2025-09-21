@@ -24,13 +24,122 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 # --- Helper ---
 async def get_account_id_from_client(client: TelegramClient) -> Optional[int]:
+    """
+    Safely retrieves the account_id associated with a client instance.
+
+    Args:
+        client (TelegramClient): The client instance.
+
+    Returns:
+        Optional[int]: The account ID if available, otherwise None.
+    """
     return client.current_account_id
 
 # --- Module Management ---
-# ... (Placeholders remain unchanged)
+async def load_account_modules(account_id: int, client_instance: TelegramClient, current_help_info: Dict[str, str]):
+    # Placeholder
+    pass
+
+async def addmod_handler(event: events.NewMessage.Event):
+    await event.edit("Команда `.addmod` в разработке.")
+
+async def delmod_handler(event: events.NewMessage.Event):
+    await event.edit("Команда `.delmod` в разработке.")
+
+async def trustmod_handler(event: events.NewMessage.Event):
+    await event.edit("Команда `.trustmod` в разработке.")
+
+async def configmod_handler(event: events.NewMessage.Event):
+    await event.edit("Команда `.configmod` в разработке.")
+    
+async def update_modules_handler(event: events.NewMessage.Event):
+    await event.edit("Команда `.updatemodules` в разработке.")
 
 async def logs_handler(event: events.NewMessage.Event):
-    # ... (Implementation from previous response remains unchanged)
+    """Handles the .logs command for fetching and managing logs."""
+    await event.edit(await event.client.get_string("logs_processing"))
+    
+    try:
+        args: List[str] = shlex.split(event.raw_text)[1:]
+    except ValueError:
+        await event.edit(await event.client.get_string("logs_err_args"))
+        return
+
+    if not args:
+        await event.edit(await event.client.get_string("help_logs_usage"), parse_mode="markdown")
+        return
+
+    command: str = args[0].lower()
+
+    if command == "purge":
+        try:
+            async with event.client.conversation(event.chat_id, timeout=60) as conv:
+                await conv.send_message(await event.client.get_string("logs_confirm_purge"))
+                response = await conv.get_response()
+                if response.text.lower() in ("yes", "да"):
+                    async with get_db() as db:
+                        deleted_count = await db_manager.purge_logs(db)
+                    await conv.send_message(await event.client.get_string("logs_purge_success", count=deleted_count))
+                else:
+                    await conv.send_message(await event.client.get_string("logs_purge_cancelled"))
+        except asyncio.TimeoutError:
+            await event.respond(await event.client.get_string("delete_timeout"))
+        finally:
+            await event.delete()
+        return
+
+    # --- Log Fetching Logic ---
+    mode: str = "tail"
+    limit: int = 100
+    level: Optional[str] = None
+    source: Optional[str] = None
+    
+    if args and args[0].lower() in ["head", "tail"]:
+        mode = args.pop(0).lower()
+    
+    if args and args[0].isdigit():
+        limit = int(args.pop(0))
+
+    for arg in args:
+        if "=" in arg:
+            key, value = arg.split("=", 1)
+            if key.lower() == "level":
+                level = value.upper()
+            elif key.lower() == "source":
+                source = value
+
+    async with get_db() as db:
+        logs_list = await db_manager.get_logs_advanced(db, mode, limit, level, source)
+
+    if not logs_list:
+        await event.edit(await event.client.get_string("logs_not_found"))
+        return
+
+    log_content: str = "\n".join(
+        f"[{log.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] [{log.level}] [{log.module_name or 'System'}] {log.message}"
+        for log in logs_list
+    )
+    
+    log_file = io.BytesIO(log_content.encode('utf-8'))
+    filename = f"debot_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    
+    caption: str = await event.client.get_string(
+        "logs_caption",
+        mode=mode,
+        lines=limit,
+        level=level or "ANY",
+        source=source or "ANY",
+        found=len(logs_list)
+    )
+
+    await event.delete()
+    await event.client.send_file(
+        event.chat_id,
+        file=log_file,
+        caption=caption,
+        attributes=[DocumentAttributeFilename(filename)],
+        parse_mode="markdown"
+    )
 
 # --- Account Management Handlers ---
 async def list_accounts_handler(event: events.NewMessage.Event):
@@ -114,7 +223,8 @@ async def add_account_handler(event: events.NewMessage.Event):
             await status_msg.edit(await event.client.get_string("verifying_creds"))
 
             async with get_db() as db:
-                if await db_manager.get_account_by_user_id(db, user_id):
+                existing = await db_manager.get_account_by_user_id(db, user_id)
+                if existing:
                     await status_msg.edit(await event.client.get_string("err_duplicate_session", user_id=user_id, existing_name=existing.account_name))
                     return
 
@@ -160,6 +270,58 @@ async def add_account_handler(event: events.NewMessage.Event):
         if os.path.exists(session_file_path):
             os.remove(session_file_path)
 
+async def delete_account_handler(event: events.NewMessage.Event):
+    account_name = event.pattern_match.group(1)
+    try:
+        async with event.client.conversation(event.chat_id, timeout=60) as conv:
+            await conv.send_message(await event.client.get_string("confirm_delete", account_name=account_name))
+            confirmation = await conv.get_response()
+            if confirmation.text.lower() in ['да', 'yes']:
+                async with get_db() as db:
+                    success = await db_manager.delete_account(db, account_name)
+                if success:
+                    await conv.send_message(await event.client.get_string("delete_success", account_name=account_name))
+                else:
+                    await conv.send_message(await event.client.get_string("delete_fail", account_name=account_name))
+            else:
+                await conv.send_message(await event.client.get_string("delete_cancelled"))
+    except asyncio.TimeoutError:
+        await event.respond(await event.client.get_string("delete_timeout"))
+
+async def toggle_account_handler(event: events.NewMessage.Event):
+    account_name = event.pattern_match.group(1)
+    async with get_db() as db:
+        new_status = await db_manager.toggle_account_status(db, account_name)
+    
+    if new_status is None:
+        await event.edit(await event.client.get_string("toggle_not_found", account_name=account_name))
+    elif new_status is True:
+        await event.edit(await event.client.get_string("toggle_enabled", account_name=account_name))
+    else:
+        await event.edit(await event.client.get_string("toggle_disabled", account_name=account_name))
+
+async def set_lang_handler(event: events.NewMessage.Event):
+    identifier: str = event.pattern_match.group(1)
+    account_id = await get_account_id_from_client(event.client)
+    if not account_id: return
+
+    await event.edit(await event.client.get_string("lang_downloading"))
+    
+    new_lang_code, error = await translator.load_language_pack(identifier)
+    
+    if error or not new_lang_code:
+        await event.edit(await event.client.get_string("lang_download_fail", error=error))
+        return
+
+    async with get_db() as db:
+        success = await db_manager.update_account_lang(db, account_id, new_lang_code)
+    
+    if success:
+        event.client.lang_code = new_lang_code
+        await event.edit(await event.client.get_string("lang_updated", lang_code=new_lang_code))
+    else:
+        await event.edit(await event.client.get_string("lang_update_fail"))
+
 async def help_commands_handler(event: events.NewMessage.Event):
     """Handles the .help command, showing a list or extended help."""
     command_to_get: Optional[str] = event.pattern_match.group(1)
@@ -170,7 +332,6 @@ async def help_commands_handler(event: events.NewMessage.Event):
     if command_to_get:
         cmd: str = f".{command_to_get.strip().lower()}"
         
-        # 1. Search in Core Commands
         core_commands_ext: Dict[str, str] = {
             ".ping": "help_ext_ping", ".restart": "help_ext_restart", ".listaccs": "help_ext_listaccs",
             ".addacc": "help_ext_addacc", ".delacc": "help_ext_delacc", ".toggleacc": "help_ext_toggleacc",
@@ -185,12 +346,10 @@ async def help_commands_handler(event: events.NewMessage.Event):
                 await event.edit(help_text, parse_mode="markdown")
                 return
 
-        # 2. Search in Modules
         if account_id and account_id in GLOBAL_HELP_INFO:
             for mod_info in GLOBAL_HELP_INFO[account_id].values():
                 if mod_info.ext_descriptions:
                     for i, pattern in enumerate(mod_info.patterns):
-                        # Simple check if the user command starts with the module's command pattern
                         if cmd.startswith(pattern.split(" ")[0]):
                             await event.edit(mod_info.ext_descriptions[i], parse_mode="markdown")
                             return
@@ -201,7 +360,6 @@ async def help_commands_handler(event: events.NewMessage.Event):
     # --- Main Help Menu Logic ---
     categories: Dict[str, List[str]] = {}
     
-    # 1. Populate Core Commands
     core_commands: List[Tuple[str, str, str]] = [
         ("Управление", ".listaccs", "help_listaccs"), ("Управление", ".addacc <name>", "help_addacc"),
         ("Управление", ".delacc <name>", "help_delacc"), ("Управление", ".toggleacc <name>", "help_toggleacc"),
@@ -218,7 +376,6 @@ async def help_commands_handler(event: events.NewMessage.Event):
         desc: str = await client.get_string(key)
         categories[category].append(f"`{pattern}` - {desc}")
 
-    # 2. Populate Module Commands
     if account_id and account_id in GLOBAL_HELP_INFO:
         for mod_name, mod_info in GLOBAL_HELP_INFO[account_id].items():
             cat_name: str = mod_info.category.capitalize()
@@ -228,7 +385,6 @@ async def help_commands_handler(event: events.NewMessage.Event):
                 desc: str = mod_info.descriptions[i]
                 categories[cat_name].append(f"`{pattern}` - {desc}")
     
-    # 3. Build Formatted String
     final_text_parts: List[str] = [await client.get_string("help_header")]
     for i, (category, cmds) in enumerate(categories.items()):
         final_text_parts.append(f"\n╭ **{category}**")
@@ -238,33 +394,8 @@ async def help_commands_handler(event: events.NewMessage.Event):
     
     await event.edit("\n".join(final_text_parts), parse_mode="markdown")
 
-# ... (other handlers like about, restart, ping remain mostly the same, just ensure parse_mode="markdown")
 async def about_command_handler(event: events.NewMessage.Event):
     await event.edit(await event.client.get_string("about_text"), parse_mode="markdown")
 
 async def restart_handler(event: events.NewMessage.Event):
-    await event.edit(await event.client.get_string("restarting_now"), parse_mode="markdown")
-    await asyncio.sleep(1)
-    sys.exit(0)
-
-async def ping_handler(event: events.NewMessage.Event):
-    start_time: float = time.time()
-    await event.edit("Pinging...")
-    
-    api_start_time: float = time.time()
-    await event.client(GetStateRequest())
-    api_end_time: float = time.time()
-    
-    end_time: float = time.time()
-    
-    total_latency: float = (end_time - start_time) * 1000
-    api_latency: float = (api_end_time - api_start_time) * 1000
-    user_server_latency: float = total_latency - api_latency
-    
-    response_text = await event.client.get_string(
-        "ping_response",
-        user_server=f"{user_server_latency:.2f}",
-        server_api=f"{api_latency:.2f}",
-        total=f"{total_latency:.2f}"
-    )
-    await event.edit(response_text, parse_mode="markdown")
+    await event.edit(await event.client.get_string("restarting_now"), pa
