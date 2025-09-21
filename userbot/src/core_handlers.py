@@ -1,17 +1,20 @@
 import asyncio
+import io
 import logging
 import os
+import shlex
 import sys
 import time
 from datetime import datetime
-from typing import Dict, Any, List, Set, Optional
+from typing import Dict, Any, List, Optional
 
 from telethon import events
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import SQLiteSession
 from telethon.tl.functions.updates import GetStateRequest
+from telethon.tl.types import DocumentAttributeFilename
 
-from userbot import TelegramClient, FAKE, GLOBAL_HELP_INFO, _generate_random_device, ACTIVE_CLIENTS
+from userbot import TelegramClient, FAKE, GLOBAL_HELP_INFO, _generate_random_device
 from userbot.src.db.session import get_db
 import userbot.src.db_manager as db_manager
 from userbot.src.locales import translator
@@ -52,7 +55,90 @@ async def update_modules_handler(event: events.NewMessage.Event):
     await event.edit("Команда `.updatemodules` в разработке.")
 
 async def logs_handler(event: events.NewMessage.Event):
-    await event.edit("Команда `.logs` в разработке.")
+    """Handles the .logs command for fetching and managing logs."""
+    await event.edit(await event.client.get_string("logs_processing"))
+    
+    try:
+        args: List[str] = shlex.split(event.raw_text)[1:]
+    except ValueError:
+        await event.edit(await event.client.get_string("logs_err_args"))
+        return
+
+    if not args:
+        await event.edit(await event.client.get_string("help_logs_usage"))
+        return
+
+    command: str = args[0].lower()
+
+    if command == "purge":
+        try:
+            async with event.client.conversation(event.chat_id, timeout=60) as conv:
+                await conv.send_message(await event.client.get_string("logs_confirm_purge"))
+                response = await conv.get_response()
+                if response.text.lower() in ("yes", "да"):
+                    async with get_db() as db:
+                        deleted_count = await db_manager.purge_logs(db)
+                    await conv.send_message(await event.client.get_string("logs_purge_success", count=deleted_count))
+                else:
+                    await conv.send_message(await event.client.get_string("logs_purge_cancelled"))
+        except asyncio.TimeoutError:
+            await event.respond(await event.client.get_string("delete_timeout"))
+        return
+
+    # --- Log Fetching Logic ---
+    mode: str = "tail"
+    limit: int = 100
+    level: Optional[str] = None
+    source: Optional[str] = None
+    
+    # Parse arguments
+    if args[0].lower() in ["head", "tail"]:
+        mode = args.pop(0).lower()
+    
+    if args and args[0].isdigit():
+        limit = int(args.pop(0))
+
+    for arg in args:
+        if "=" in arg:
+            key, value = arg.split("=", 1)
+            if key.lower() == "level":
+                level = value.upper()
+            elif key.lower() == "source":
+                source = value
+
+    async with get_db() as db:
+        logs_list = await db_manager.get_logs_advanced(db, mode, limit, level, source)
+
+    if not logs_list:
+        await event.edit(await event.client.get_string("logs_not_found"))
+        return
+
+    # Prepare file and caption
+    log_content: str = "\n".join(
+        f"[{log.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] [{log.level}] [{log.module_name or 'System'}] {log.message}"
+        for log in logs_list
+    )
+    
+    log_file = io.BytesIO(log_content.encode('utf-8'))
+    filename = f"debot_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    
+    caption: str = await event.client.get_string(
+        "logs_caption",
+        mode=mode,
+        lines=limit,
+        level=level or "ANY",
+        source=source or "ANY",
+        found=len(logs_list)
+    )
+
+    await event.delete()
+    await event.client.send_file(
+        event.chat_id,
+        file=log_file,
+        caption=caption,
+        attributes=[DocumentAttributeFilename(filename)],
+        parse_mode="HTML"
+    )
 
 # --- Account Management Handlers ---
 async def list_accounts_handler(event: events.NewMessage.Event):
@@ -233,8 +319,9 @@ async def help_commands_handler(event: events.NewMessage.Event):
     help_utils = "\n".join([
         f"<code>.ping</code> - {await event.client.get_string('help_ping')}",
         f"<code>.restart</code> - {await event.client.get_string('help_restart')}",
-        f"<code>.updatemodules</code> - {await event.client.get_string('help_updatemodules')}",
         f"<code>.logs</code> - {await event.client.get_string('help_logs')}",
+        f"<code>.logs purge</code> - {await event.client.get_string('help_logs_purge')}",
+        f"<code>.updatemodules</code> - {await event.client.get_string('help_updatemodules')}",
         f"<code>.about</code> - {await event.client.get_string('help_about')}"
     ])
 
@@ -259,12 +346,10 @@ async def ping_handler(event: events.NewMessage.Event):
     start_time: float = time.time()
     await event.edit("Pinging...")
     
-    # Measure API latency
     api_start_time: float = time.time()
     await event.client(GetStateRequest())
     api_end_time: float = time.time()
     
-    # Measure total round-trip latency
     end_time: float = time.time()
     
     total_latency: float = (end_time - start_time) * 1000
