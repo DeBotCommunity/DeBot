@@ -5,7 +5,6 @@ from typing import Dict, Optional, Any, List
 
 from faker import Faker
 from telethon import TelegramClient as TelethonTelegramClient, events
-from telethon.sessions import StringSession
 from telethon.errors.rpcerrorlist import UserAlreadyParticipantError
 from python_socks import ProxyType
 
@@ -18,31 +17,22 @@ import userbot.src.db_manager as db_manager
 from userbot.src.log_handler import DBLogHandler
 from userbot.src.locales import translator
 
-# --- Basic Setup ---
 logger: logging.Logger = logging.getLogger("userbot")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# --- Globals ---
 ACTIVE_CLIENTS: Dict[int, "TelegramClient"] = {}
 FAKE: Faker = Faker()
 GLOBAL_HELP_INFO: Dict[int, Dict[str, str]] = {}
 
-# --- Helper Functions ---
 def _generate_random_device() -> Dict[str, str]:
-    """Generates a dictionary with random device information."""
     return {
         "device_model": FAKE.user_agent(),
         "system_version": f"SDK {FAKE.random_int(min=28, max=33)}",
         "app_version": f"{FAKE.random_int(min=9, max=10)}.{FAKE.random_int(min=0, max=9)}.{FAKE.random_int(min=0, max=9)}"
     }
 
-# --- Core TelegramClient Class ---
 class TelegramClient(TelethonTelegramClient):
-    """
-    Custom TelegramClient class with database interaction and localization methods.
-    """
     def __init__(self, *args, **kwargs):
-        """Initializes the custom Telegram client."""
         super().__init__(*args, **kwargs)
         self.lang_code: str = 'ru'
 
@@ -55,7 +45,6 @@ class TelegramClient(TelethonTelegramClient):
     async def get_string(self, key: str, module_name: Optional[str] = None, **kwargs) -> str:
         return translator.get_string(self.lang_code, key, module_name, **kwargs)
 
-# --- Startup Logic ---
 async def db_setup() -> None:
     if not API_ID or not API_HASH:
         logger.critical("API_ID or API_HASH is not set. Please run 'python3 -m scripts.setup'. Exiting.")
@@ -146,16 +135,16 @@ async def manage_clients() -> None:
              proxy_type_enum = proxy_map.get(account.proxy_type.lower())
              if proxy_type_enum:
                  proxy_details = (
-                     proxy_type_enum,
-                     account.proxy_ip,
-                     account.proxy_port,
-                     True,
+                     proxy_type_enum, account.proxy_ip, account.proxy_port, True,
                      encryption_manager.decrypt(account.proxy_username).decode() if account.proxy_username else None,
                      encryption_manager.decrypt(account.proxy_password).decode() if account.proxy_password else None
                  )
+        
+        # Use the asynchronous factory method to create the session
+        session = await DbSession.create(account_id=account.account_id)
 
         new_client: TelegramClient = TelegramClient(
-            session=DbSession(account_id=account.account_id), 
+            session=session, 
             api_id=int(acc_api_id), 
             api_hash=acc_api_hash, 
             device_model=account.device_model, 
