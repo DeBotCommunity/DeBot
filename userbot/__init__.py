@@ -139,8 +139,12 @@ async def manage_clients() -> None:
                      encryption_manager.decrypt(account.proxy_username).decode() if account.proxy_username else None,
                      encryption_manager.decrypt(account.proxy_password).decode() if account.proxy_password else None
                  )
-        
-        session = DbSession(account_id=account.account_id)
+
+        session = DbSession(
+            account_id=account.account_id,
+            user_id=account.user_telegram_id,
+            access_hash=account.access_hash
+        )
 
         new_client: TelegramClient = TelegramClient(
             session=session, 

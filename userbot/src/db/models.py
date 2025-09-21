@@ -11,17 +11,20 @@ Base = declarative_base()
 class Account(Base):
     __tablename__ = 'accounts'
     account_id = Column(Integer, primary_key=True)
-    user_telegram_id = Column(BIGINT, unique=True, nullable=True)
+    user_telegram_id = Column(BIGINT, unique=True, nullable=True) # Populated after first login
+    access_hash = Column(BIGINT, nullable=True) # Populated after first login
     api_id = Column(BYTEA, nullable=False)
     api_hash = Column(BYTEA, nullable=False)
     account_name = Column(String(255), unique=True, nullable=False)
     is_enabled = Column(Boolean, default=True, nullable=False)
     lang_code = Column(String(10), default='ru', nullable=False)
     
+    # Device info
     device_model = Column(TEXT)
     system_version = Column(TEXT)
     app_version = Column(TEXT)
 
+    # Proxy info
     proxy_type = Column(TEXT)
     proxy_ip = Column(TEXT)
     proxy_port = Column(Integer)
@@ -45,10 +48,6 @@ class Session(Base):
     port = Column(Integer)
     auth_key_data = Column(BYTEA)
     
-    # New fields for self-entity caching
-    self_user_id = Column(BIGINT)
-    self_access_hash = Column(BIGINT)
-
     # Update state fields
     pts = Column(Integer)
     qts = Column(Integer)

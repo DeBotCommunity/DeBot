@@ -14,27 +14,32 @@ logger: logging.Logger = logging.getLogger(__name__)
 class DbSession(Session):
     """
     A Telethon session class that stores session data in a PostgreSQL database.
-    It implements entity processing to cache the current user's ID and access_hash,
-    which is crucial for the client's startup and authorization checks.
+    It is initialized with the self-entity info from the Account record,
+    ensuring it's available for client startup.
     """
 
-    def __init__(self, account_id: int):
-        """Initializes the database-backed session."""
+    def __init__(self, account_id: int, user_id: Optional[int], access_hash: Optional[int]):
+        """
+        Initializes the session with pre-loaded self-entity information.
+
+        Args:
+            account_id (int): The database ID of the account.
+            user_id (Optional[int]): The Telegram user ID for this account.
+            access_hash (Optional[int]): The access_hash for this user.
+        """
         super().__init__()
         if not isinstance(account_id, int):
             raise ValueError("DbSession requires a valid integer account_id.")
             
         self.account_id: int = account_id
+        self._self_user_id: Optional[int] = user_id
+        self._self_access_hash: Optional[int] = access_hash
         
         self._auth_key: Optional[AuthKey] = None
         self._dc_id: int = 0
         self._server_address: Optional[str] = None
         self._port: int = 443
         self._takeout_id: Optional[int] = None
-        
-        # In-memory cache for the self user entity
-        self._self_user_id: Optional[int] = None
-        self._self_access_hash: Optional[int] = None
 
         self._pts: Optional[int] = None
         self._qts: Optional[int] = None
@@ -42,7 +47,7 @@ class DbSession(Session):
         self._seq: Optional[int] = None
         
     async def load(self) -> None:
-        """Loads session data, including the self-user cache, from the database."""
+        """Loads session data (excluding self-entity info) from the database."""
         logger.debug(f"Attempting to load session for account_id: {self.account_id}")
         async with get_db() as db:
             session_data = await db_manager.get_session(db, self.account_id)
@@ -58,28 +63,29 @@ class DbSession(Session):
             self._qts = session_data.qts
             self._date = session_data.date
             self._seq = session_data.seq
-            
-            # Load self entity from cache
-            self._self_user_id = session_data.self_user_id
-            self._self_access_hash = session_data.self_access_hash
         else:
-            logger.info(f"No session data in DB for account_id: {self.account_id}.")
+            logger.info(f"No session data in DB for account_id: {self.account_id}. New login required.")
 
     async def save(self) -> None:
-        """Saves session data, including the self-user cache, to the database."""
+        """Saves session data to the database."""
         session_data = {
-            "account_id": self.account_id, "dc_id": self._dc_id,
-            "server_address": self._server_address, "port": self._port,
+            "account_id": self.account_id,
+            "dc_id": self._dc_id,
+            "server_address": self._server_address,
+            "port": self._port,
             "auth_key_data": self._auth_key.key if self._auth_key else None,
-            "self_user_id": self._self_user_id, "self_access_hash": self._self_access_hash,
-            "pts": self._pts, "qts": self._qts, "date": self._date,
-            "seq": self._seq, "takeout_id": self._takeout_id,
+            "pts": self._pts,
+            "qts": self._qts,
+            "date": self._date,
+            "seq": self._seq,
+            "takeout_id": self._takeout_id,
         }
         async with get_db() as db:
             await db_manager.add_or_update_session(db, **session_data)
         logger.info(f"Session saved for account_id: {self.account_id}")
         
     async def delete(self) -> None:
+        """Deletes the session for the current account from the database."""
         async with get_db() as db:
             await db_manager.delete_session(db, self.account_id)
         self._auth_key = None; self._dc_id = 0
@@ -122,23 +128,19 @@ class DbSession(Session):
         if key == 0:
             if self._self_user_id and self._self_access_hash:
                 return InputPeerUser(self._self_user_id, self._self_access_hash)
-        raise KeyError("Entity not found in DbSession cache. It should be populated by process_entities.")
+        raise KeyError("Entity not found. Self-user ID and access hash were not available on session creation.")
 
     def process_entities(self, tlo: object) -> None:
-        """
-        Processes a TLObject to find and cache the 'self' user entity.
-        This is the standard mechanism Telethon uses to update the session
-        with the current user's ID and access_hash after login.
-        """
         if not hasattr(tlo, '__iter__'):
             tlo = (tlo,)
         
         for entity in tlo:
             if isinstance(entity, User) and entity.is_self:
-                self._self_user_id = entity.id
-                self._self_access_hash = entity.access_hash
-                # No need to save immediately, Telethon will call .save() when it's appropriate.
+                if self._self_user_id != entity.id or self._self_access_hash != entity.access_hash:
+                    logger.info(f"Self-entity info for account {self.account_id} updated in-session.")
+                    self._self_user_id = entity.id
+                    self._self_access_hash = entity.access_hash
                 break
-
+    
     def cache_file(self, md5_digest: bytes, file_size: int, instance: Any) -> None: pass
     def get_file(self, md5_digest: bytes, file_size: int, exact: bool = True) -> Optional[Any]: return None
