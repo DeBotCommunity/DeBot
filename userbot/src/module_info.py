@@ -4,12 +4,13 @@
 # Example in a module (e.g., my_module.py):
 # from userbot.src.module_info import ModuleInfo
 # info = ModuleInfo(
-#     name="my_module", # Typically the module's file name without .py
-#     category="tools", # e.g., "tools", "fun", "chat"
-#     patterns=[".command1", ".command2"], # List of command patterns
-#     descriptions=["Description for command1", "Description for command2"], # Corresponding descriptions
-#     authors=["Your Name"], # Optional: list of author names
-#     version="1.0" # Optional: module version string
+#     name="my_module",
+#     category="tools",
+#     patterns=[".command1", ".command2"],
+#     descriptions=["Description for command1", "Description for command2"],
+#     ext_descriptions=["Extended description for command1.", "Extended description for command2."],
+#     authors=["Your Name"],
+#     version="1.0"
 # )
 # # Your module's functions and handlers would follow
 # async def command1_handler(event): ...
@@ -22,19 +23,24 @@ class ModuleInfo:
                  category: str,
                  patterns: List[str],
                  descriptions: List[str],
+                 ext_descriptions: Optional[List[str]] = None,
                  authors: Optional[List[str]] = None,
                  version: Optional[str] = None):
         if len(patterns) != len(descriptions):
             raise ValueError("The number of patterns must match the number of descriptions.")
+        if ext_descriptions and len(patterns) != len(ext_descriptions):
+            raise ValueError("The number of patterns must match the number of extended descriptions.")
 
         self.name: str = name
         self.category: str = category
         self.patterns: List[str] = patterns
         self.descriptions: List[str] = descriptions
+        self.ext_descriptions: Optional[List[str]] = ext_descriptions
         self.authors: Optional[List[str]] = authors
         self.version: Optional[str] = version
 
     def __repr__(self) -> str:
         return (f"ModuleInfo(name='{self.name}', category='{self.category}', "
                 f"patterns={self.patterns}, descriptions={self.descriptions}, "
+                f"ext_descriptions={self.ext_descriptions}, "
                 f"authors={self.authors}, version='{self.version}')")
