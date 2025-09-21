@@ -1,21 +1,20 @@
 import asyncio
-import io
 import logging
 import os
-import shlex
-import subprocess
 import sys
+import time
 from datetime import datetime
 from typing import Dict, Any, List, Set, Optional
 
 from telethon import events
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import SQLiteSession
+from telethon.tl.functions.updates import GetStateRequest
 
 from userbot import TelegramClient, FAKE, GLOBAL_HELP_INFO, _generate_random_device, ACTIVE_CLIENTS
 from userbot.src.db.session import get_db
 import userbot.src.db_manager as db_manager
-from userbot.src.module_parser import parse_module_metadata
+from userbot.src.locales import translator
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -50,7 +49,7 @@ async def configmod_handler(event: events.NewMessage.Event):
     await event.edit("Команда `.configmod` в разработке.")
     
 async def update_modules_handler(event: events.NewMessage.Event):
-    await event.edit("Команда `.update_modules` в разработке.")
+    await event.edit("Команда `.updatemodules` в разработке.")
 
 async def logs_handler(event: events.NewMessage.Event):
     await event.edit("Команда `.logs` в разработке.")
@@ -117,7 +116,7 @@ async def add_account_handler(event: events.NewMessage.Event):
             me = await temp_client.get_me(input_peer=True)
             user_id = me.user_id
             access_hash = me.access_hash
-            await temp_client.disconnect() # Disconnect to save session file properly
+            await temp_client.disconnect()
 
             async with get_db() as db:
                 existing = await db_manager.get_account_by_user_id(db, user_id)
@@ -134,30 +133,18 @@ async def add_account_handler(event: events.NewMessage.Event):
             async with get_db() as db:
                 new_acc = await db_manager.add_account(
                     db,
-                    account_name=account_name,
-                    api_id=api_id,
-                    api_hash=api_hash,
-                    lang_code=lang_code,
-                    is_enabled=is_enabled,
-                    device_model=device_details['device_model'],
-                    system_version=device_details['system_version'],
-                    app_version=device_details['app_version'],
-                    user_telegram_id=user_id,
-                    access_hash=access_hash
+                    account_name=account_name, api_id=api_id, api_hash=api_hash, lang_code=lang_code, is_enabled=is_enabled,
+                    device_model=device_details['device_model'], system_version=device_details['system_version'], app_version=device_details['app_version'],
+                    user_telegram_id=user_id, access_hash=access_hash
                 )
                 if not new_acc:
                     await conv.send_message(await event.client.get_string("add_acc_fail", account_name=account_name))
                     return
                 
-                # Now extract session data and save it
                 with open(session_file_path, 'rb') as f:
                     session_bytes: bytes = f.read()
 
-                await db_manager.add_or_update_session(
-                    db,
-                    account_id=new_acc.account_id,
-                    session_file=session_bytes
-                )
+                await db_manager.add_or_update_session(db, new_acc.account_id, session_bytes)
             
             await conv.send_message(await event.client.get_string("add_acc_success", account_name=account_name))
 
@@ -171,7 +158,6 @@ async def add_account_handler(event: events.NewMessage.Event):
             await temp_client.disconnect()
         if os.path.exists(session_file_path):
             os.remove(session_file_path)
-
 
 async def delete_account_handler(event: events.NewMessage.Event):
     account_name = event.pattern_match.group(1)
@@ -204,30 +190,91 @@ async def toggle_account_handler(event: events.NewMessage.Event):
         await event.edit(await event.client.get_string("toggle_disabled", account_name=account_name))
 
 async def set_lang_handler(event: events.NewMessage.Event):
-    lang_code = event.pattern_match.group(1).lower()
+    identifier: str = event.pattern_match.group(1)
     account_id = await get_account_id_from_client(event.client)
     if not account_id: return
 
+    await event.edit(await event.client.get_string("lang_downloading"))
+    
+    new_lang_code, error = await translator.load_language_pack(identifier)
+    
+    if error or not new_lang_code:
+        await event.edit(await event.client.get_string("lang_download_fail", error=error))
+        return
+
     async with get_db() as db:
-        success = await db_manager.update_account_lang(db, account_id, lang_code)
+        success = await db_manager.update_account_lang(db, account_id, new_lang_code)
     
     if success:
-        event.client.lang_code = lang_code
-        await event.edit(await event.client.get_string("lang_updated", lang_code=lang_code))
+        event.client.lang_code = new_lang_code
+        await event.edit(await event.client.get_string("lang_updated", lang_code=new_lang_code))
     else:
         await event.edit(await event.client.get_string("lang_update_fail"))
 
 async def help_commands_handler(event: events.NewMessage.Event):
+    # Part 1: Management
     help_management = "\n".join([
         f"<code>.listaccs</code> - {await event.client.get_string('help_listaccs')}",
         f"<code>.addacc &lt;name&gt;</code> - {await event.client.get_string('help_addacc')}",
         f"<code>.delacc &lt;name&gt;</code> - {await event.client.get_string('help_delacc')}",
         f"<code>.toggleacc &lt;name&gt;</code> - {await event.client.get_string('help_toggleacc')}",
-        f"<code>.setlang &lt;code&gt;</code> - {await event.client.get_string('help_setlang')}",
-        f"<code>.about</code> - {await event.client.get_string('help_about')}",
+        f"<code>.setlang &lt;code|url&gt;</code> - {await event.client.get_string('help_setlang')}"
     ])
-    final_text = f"{await event.client.get_string('help_header_management')}\n{help_management}"
+    
+    # Part 2: Module Management
+    help_modules = "\n".join([
+        f"<code>.addmod</code> - {await event.client.get_string('help_addmod')}",
+        f"<code>.delmod &lt;name&gt;</code> - {await event.client.get_string('help_delmod')}",
+        f"<code>.trustmod &lt;name&gt;</code> - {await event.client.get_string('help_trustmod')}",
+        f"<code>.configmod &lt;...&gt;</code> - {await event.client.get_string('help_configmod')}"
+    ])
+
+    # Part 3: Utilities
+    help_utils = "\n".join([
+        f"<code>.ping</code> - {await event.client.get_string('help_ping')}",
+        f"<code>.restart</code> - {await event.client.get_string('help_restart')}",
+        f"<code>.updatemodules</code> - {await event.client.get_string('help_updatemodules')}",
+        f"<code>.logs</code> - {await event.client.get_string('help_logs')}",
+        f"<code>.about</code> - {await event.client.get_string('help_about')}"
+    ])
+
+    # Combine all parts
+    final_text = (
+        f"{await event.client.get_string('help_header_management')}\n{help_management}\n\n"
+        f"{await event.client.get_string('help_header_modules')}\n{help_modules}\n\n"
+        f"{await event.client.get_string('help_header_utils')}\n{help_utils}"
+    )
+
     await event.edit(final_text, parse_mode="HTML")
 
 async def about_command_handler(event: events.NewMessage.Event):
     await event.edit(await event.client.get_string("about_text"), parse_mode="HTML")
+
+async def restart_handler(event: events.NewMessage.Event):
+    await event.edit(await event.client.get_string("restarting_now"))
+    await asyncio.sleep(1)
+    sys.exit(0)
+
+async def ping_handler(event: events.NewMessage.Event):
+    start_time: float = time.time()
+    await event.edit("Pinging...")
+    
+    # Measure API latency
+    api_start_time: float = time.time()
+    await event.client(GetStateRequest())
+    api_end_time: float = time.time()
+    
+    # Measure total round-trip latency
+    end_time: float = time.time()
+    
+    total_latency: float = (end_time - start_time) * 1000
+    api_latency: float = (api_end_time - api_start_time) * 1000
+    user_server_latency: float = total_latency - api_latency
+    
+    response_text = await event.client.get_string(
+        "ping_response",
+        user_server=f"{user_server_latency:.2f}",
+        server_api=f"{api_latency:.2f}",
+        total=f"{total_latency:.2f}"
+    )
+    await event.edit(response_text, parse_mode="HTML")

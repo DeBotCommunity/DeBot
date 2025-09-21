@@ -46,6 +46,17 @@ class TelegramClient(TelethonTelegramClient):
     
     async def get_string(self, key: str, module_name: Optional[str] = None, **kwargs) -> str:
         return translator.get_string(self.lang_code, key, module_name, **kwargs)
+    
+    def get_all_clients(self) -> List["TelegramClient"]:
+        """
+        Returns a list of all active client instances.
+        
+        This method is intended for use in trusted modules for multi-account operations.
+        
+        Returns:
+            List[TelegramClient]: A list of all currently active and authorized clients.
+        """
+        return list(ACTIVE_CLIENTS.values())
 
 async def db_setup() -> None:
     if not API_ID or not API_HASH:
@@ -70,7 +81,8 @@ async def start_individual_client(client: TelegramClient, account: Account) -> N
         load_account_modules, help_commands_handler, about_command_handler,
         add_account_handler, delete_account_handler, toggle_account_handler,
         list_accounts_handler, set_lang_handler, addmod_handler, delmod_handler,
-        trustmod_handler, configmod_handler, update_modules_handler, logs_handler
+        trustmod_handler, configmod_handler, update_modules_handler, logs_handler,
+        restart_handler, ping_handler
     )
 
     client.lang_code = account.lang_code
@@ -83,14 +95,26 @@ async def start_individual_client(client: TelegramClient, account: Account) -> N
             logger.info(f"Client for account '{account.account_name}' (ID: {account_id}) is authorized.")
             GLOBAL_HELP_INFO[account_id] = {}
             
+            # Register all core handlers
             client.add_event_handler(help_commands_handler, events.NewMessage(outgoing=True, pattern=r"^\.help$"))
             client.add_event_handler(about_command_handler, events.NewMessage(outgoing=True, pattern=r"^\.about$"))
+            # Account Management
             client.add_event_handler(list_accounts_handler, events.NewMessage(outgoing=True, pattern=r"^\.listaccs$"))
             client.add_event_handler(add_account_handler, events.NewMessage(outgoing=True, pattern=r"^\.addacc\s+([a-zA-Z0-9_]+)$"))
             client.add_event_handler(delete_account_handler, events.NewMessage(outgoing=True, pattern=r"^\.delacc\s+([a-zA-Z0-9_]+)$"))
             client.add_event_handler(toggle_account_handler, events.NewMessage(outgoing=True, pattern=r"^\.toggleacc\s+([a-zA-Z0-9_]+)$"))
-            client.add_event_handler(set_lang_handler, events.NewMessage(outgoing=True, pattern=r"^\.setlang\s+([a-zA-Z]{2,5})$"))
-            
+            client.add_event_handler(set_lang_handler, events.NewMessage(outgoing=True, pattern=r"^\.setlang\s+(.+)"))
+            # Module Management
+            client.add_event_handler(addmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.addmod$"))
+            client.add_event_handler(delmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.delmod\s+(.+)"))
+            client.add_event_handler(trustmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.trustmod\s+(.+)"))
+            client.add_event_handler(configmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.configmod\s+(.+)"))
+            # Utilities
+            client.add_event_handler(ping_handler, events.NewMessage(outgoing=True, pattern=r"^\.ping$"))
+            client.add_event_handler(restart_handler, events.NewMessage(outgoing=True, pattern=r"^\.restart$"))
+            client.add_event_handler(update_modules_handler, events.NewMessage(outgoing=True, pattern=r"^\.updatemodules$"))
+            client.add_event_handler(logs_handler, events.NewMessage(outgoing=True, pattern=r"^\.logs.*"))
+
             await load_account_modules(account_id, client, GLOBAL_HELP_INFO[account_id])
             
             try:
@@ -142,7 +166,6 @@ async def manage_clients() -> None:
                      encryption_manager.decrypt(account.proxy_password).decode() if account.proxy_password else None
                  )
         
-        # Check for session existence before proceeding
         if not account.session or not account.session.session_file:
             logger.error(f"Session data is missing in the database for account '{account.account_name}'. Skipping.")
             continue
@@ -150,9 +173,6 @@ async def manage_clients() -> None:
         try:
             decrypted_session_bytes: bytes = encryption_manager.decrypt(account.session.session_file)
             
-            # Create a temporary file to hold the session for Telethon
-            # delete=False ensures the file is not deleted when the 'with' block exits.
-            # It will be cleaned up automatically when the Docker container stops.
             with tempfile.NamedTemporaryFile(suffix=".session", delete=False) as tmp:
                 tmp.write(decrypted_session_bytes)
                 session_path: str = tmp.name
@@ -171,7 +191,7 @@ async def manage_clients() -> None:
             system_version=account.system_version, 
             app_version=account.app_version,
             proxy=proxy_details,
-            account_id=account.account_id # Pass custom arg here
+            account_id=account.account_id
         )
         ACTIVE_CLIENTS[account.account_id] = new_client
         tasks.append(start_individual_client(new_client, account))

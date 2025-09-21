@@ -51,7 +51,7 @@ def register(client):
 ## Метаданные
 
 -   `__requires__` (опционально): Список строковых имен Python-пакетов, которые необходимы для работы модуля. DeBot автоматически попытается установить их через `pip` при добавлении модуля.
--   `__trusted__` (опционально): `True` или `False`. Если `True`, модуль считается потенциально опасным и требует явного одобрения от пользователя командой `.trustmod`. Только доверенные модули получают доступ к реальному объекту `TelegramClient`.
+-   `__trusted__` (опционально): `True` или `False`. Если `True`, модуль считается потенциально опасным и требует явного одобрения от пользователя командой `.trustmod`. Только доверенные модули получают доступ к реальному объекту `TelegramClient` и его расширенным возможностям.
 -   `__config__` (опционально): Словарь, описывающий настраиваемые параметры модуля. Для каждого ключа можно указать `default` (значение по умолчанию) и `description` (описание).
 -   `info` (обязательно): Экземпляр класса `ModuleInfo`, который используется для генерации справки в команде `.help`.
 
@@ -61,25 +61,64 @@ def register(client):
 
 В зависимости от статуса доверия модуля, в `client` будет передан либо **реальный `TelegramClient`** (если модуль доверенный), либо **безопасная обертка `ModuleClient`** (если нет).
 
+## Мультиаккаунтное взаимодействие
+
+> ⚠️ **Требуется `__trusted__ = True`**
+>
+> Эта функция предоставляет доступ ко всем активным клиентам и является потенциально опасной. Используйте ее только в доверенных модулях.
+
+Вы можете создавать модули, которые управляют всеми активными аккаунтами одновременно. Например, модуль для массового вступления в чат.
+
+Для этого используйте метод `client.get_all_clients()`, который возвращает список всех активных экземпляров `TelegramClient`.
+
+**Пример модуля `mass_joiner.py`:**
+
+```python
+import asyncio
+from telethon import events
+from telethon.tl.functions.channels import JoinChannelRequest
+from userbot import TelegramClient
+from userbot.src.module_info import ModuleInfo
+
+# Этот модуль должен быть доверенным, чтобы получить доступ к другим клиентам
+__trusted__ = True
+
+info = ModuleInfo(
+    name="Mass Joiner",
+    category="tools",
+    patterns=[".mjoin <chat>"],
+    descriptions=["Зайти в указанный чат со всех активных аккаунтов."]
+)
+
+async def mass_join_handler(event: events.NewMessage.Event):
+    chat_to_join = event.pattern_match.group(1)
+    if not chat_to_join:
+        await event.edit("Укажите ссылку на чат.")
+        return
+
+    await event.edit(f"Начинаю вход в `{chat_to_join}` со всех аккаунтов...")
+    
+    all_clients: list[TelegramClient] = event.client.get_all_clients()
+    tasks = []
+    
+    for client_instance in all_clients:
+        task = client_instance(JoinChannelRequest(chat_to_join))
+        tasks.append(task)
+        
+    try:
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await event.edit(f"✅ Все аккаунты ({len(all_clients)}) попытались войти в `{chat_to_join}`.")
+    except Exception as e:
+        await event.edit(f"Произошла ошибка: {e}")
+
+def register(client: TelegramClient):
+    client.add_event_handler(mass_join_handler, events.NewMessage(outgoing=True, pattern=r"^\.mjoin\s+(.+)"))
+```
+
 ## Локализация
 
 Ваши модули могут и должны поддерживать несколько языков.
 
 1.  Создайте папку `locales` внутри папки вашего модуля (например, `userbot/modules/my_module/locales/`).
 2.  Внутри создайте JSON-файлы для каждого языка (например, `ru.json`, `en.json`).
-    ```json
-    // ru.json
-    {
-        "response_message": "Ваш API ключ"
-    }
-    ```
-3.  В коде модуля получайте строки через `client`, который автоматически определит язык текущего аккаунта:
-    ```python
-    text = await event.client.get_string("response_message", module_name="my_module")
-    ```
-
-Бот будет искать перевод в следующей последовательности:
-1.  Перевод модуля на языке аккаунта.
-2.  Перевод модуля на русском/английском (fallback).
-3.  Системный перевод на языке аккаунта.
-4.  Системный перевод на русском/английском (fallback).
+3.  В коде модуля получайте строки через `client.get_string("key", module_name="my_module")`.
