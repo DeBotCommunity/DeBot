@@ -4,7 +4,7 @@ from typing import Optional, Tuple, Any, List
 
 from telethon.sessions.abstract import Session
 from telethon.crypto import AuthKey
-from telethon.tl.types import InputPeerSelf
+from telethon.tl.types import User, InputPeerUser
 
 import userbot.src.db_manager as db_manager
 from userbot.src.db.session import get_db
@@ -14,17 +14,12 @@ logger: logging.Logger = logging.getLogger(__name__)
 class DbSession(Session):
     """
     A Telethon session class that stores session data in a PostgreSQL database.
-    This implementation correctly provides all the abstract methods and properties
-    required by Telethon's base Session class.
+    It implements entity processing to cache the current user's ID and access_hash,
+    which is crucial for the client's startup and authorization checks.
     """
 
     def __init__(self, account_id: int):
-        """
-        Initializes the database-backed session.
-
-        Args:
-            account_id (int): The unique identifier for the account this session belongs to.
-        """
+        """Initializes the database-backed session."""
         super().__init__()
         if not isinstance(account_id, int):
             raise ValueError("DbSession requires a valid integer account_id.")
@@ -36,6 +31,10 @@ class DbSession(Session):
         self._server_address: Optional[str] = None
         self._port: int = 443
         self._takeout_id: Optional[int] = None
+        
+        # In-memory cache for the self user entity
+        self._self_user_id: Optional[int] = None
+        self._self_access_hash: Optional[int] = None
 
         self._pts: Optional[int] = None
         self._qts: Optional[int] = None
@@ -43,9 +42,7 @@ class DbSession(Session):
         self._seq: Optional[int] = None
         
     async def load(self) -> None:
-        """
-        Loads the session data for the current account_id from the database.
-        """
+        """Loads session data, including the self-user cache, from the database."""
         logger.debug(f"Attempting to load session for account_id: {self.account_id}")
         async with get_db() as db:
             session_data = await db_manager.get_session(db, self.account_id)
@@ -61,15 +58,20 @@ class DbSession(Session):
             self._qts = session_data.qts
             self._date = session_data.date
             self._seq = session_data.seq
+            
+            # Load self entity from cache
+            self._self_user_id = session_data.self_user_id
+            self._self_access_hash = session_data.self_access_hash
         else:
-            logger.info(f"No session data in DB for account_id: {self.account_id}. New login required.")
+            logger.info(f"No session data in DB for account_id: {self.account_id}.")
 
     async def save(self) -> None:
-        """Saves the current session data to the database."""
+        """Saves session data, including the self-user cache, to the database."""
         session_data = {
             "account_id": self.account_id, "dc_id": self._dc_id,
             "server_address": self._server_address, "port": self._port,
             "auth_key_data": self._auth_key.key if self._auth_key else None,
+            "self_user_id": self._self_user_id, "self_access_hash": self._self_access_hash,
             "pts": self._pts, "qts": self._qts, "date": self._date,
             "seq": self._seq, "takeout_id": self._takeout_id,
         }
@@ -78,7 +80,6 @@ class DbSession(Session):
         logger.info(f"Session saved for account_id: {self.account_id}")
         
     async def delete(self) -> None:
-        """Deletes the session for the current account from the database."""
         async with get_db() as db:
             await db_manager.delete_session(db, self.account_id)
         self._auth_key = None; self._dc_id = 0
@@ -108,8 +109,7 @@ class DbSession(Session):
     def set_update_state(self, entity_id: int, state: Any):
         if isinstance(state.date, datetime):
             date_ts = int(state.date.replace(tzinfo=timezone.utc).timestamp())
-        else:
-            date_ts = int(state.date)
+        else: date_ts = int(state.date)
         self._pts, self._qts, self._date, self._seq = state.pts, state.qts, date_ts, state.seq
         
     async def close(self) -> None: pass
@@ -118,18 +118,27 @@ class DbSession(Session):
         if self._pts is None: return []
         return [(0, self._pts, self._qts, self._date, self._seq, 0)]
 
-    def process_entities(self, tlo: object) -> None: pass
-
     def get_input_entity(self, key: Any) -> Any:
-        """
-        Returns InputPeerSelf() if key is 0, which tells Telethon to use the
-        currently authorized user. This is the correct way to handle "self" lookups.
-        """
         if key == 0:
-            return InputPeerSelf()
-        raise KeyError("Entity not found in DbSession cache (caching is not implemented).")
+            if self._self_user_id and self._self_access_hash:
+                return InputPeerUser(self._self_user_id, self._self_access_hash)
+        raise KeyError("Entity not found in DbSession cache. It should be populated by process_entities.")
+
+    def process_entities(self, tlo: object) -> None:
+        """
+        Processes a TLObject to find and cache the 'self' user entity.
+        This is the standard mechanism Telethon uses to update the session
+        with the current user's ID and access_hash after login.
+        """
+        if not hasattr(tlo, '__iter__'):
+            tlo = (tlo,)
+        
+        for entity in tlo:
+            if isinstance(entity, User) and entity.is_self:
+                self._self_user_id = entity.id
+                self._self_access_hash = entity.access_hash
+                # No need to save immediately, Telethon will call .save() when it's appropriate.
+                break
 
     def cache_file(self, md5_digest: bytes, file_size: int, instance: Any) -> None: pass
-
-    def get_file(self, md5_digest: bytes, file_size: int, exact: bool = True) -> Optional[Any]:
-        return None
+    def get_file(self, md5_digest: bytes, file_size: int, exact: bool = True) -> Optional[Any]: return None

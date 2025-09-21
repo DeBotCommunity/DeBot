@@ -28,37 +28,26 @@ async def add_account(db: AsyncSession, account_name: str, api_id: str, api_hash
         )
         db.add(new_account)
         await db.flush()
-        logger.info(f"Added account '{account_name}' with ID: {new_account.account_id}")
         return new_account
     except IntegrityError:
-        logger.warning(f"Account with name '{account_name}' or user_id '{user_telegram_id}' already exists.")
-        await db.rollback()
-        return None
+        await db.rollback(); return None
     except Exception as e:
-        logger.error(f"Error adding account '{account_name}': {e}")
-        await db.rollback()
-        raise
+        await db.rollback(); raise e
 
 async def get_account(db: AsyncSession, account_name: str) -> Optional[Account]:
-    result = await db.execute(select(Account).where(Account.account_name == account_name))
-    return result.scalars().first()
+    result = await db.execute(select(Account).where(Account.account_name == account_name)); return result.scalars().first()
 
 async def get_account_by_id(db: AsyncSession, account_id: int) -> Optional[Account]:
-    """Retrieves an account by its primary key ID."""
-    result = await db.execute(select(Account).where(Account.account_id == account_id))
-    return result.scalars().first()
+    result = await db.execute(select(Account).where(Account.account_id == account_id)); return result.scalars().first()
     
 async def get_account_by_user_id(db: AsyncSession, user_id: int) -> Optional[Account]:
-    result = await db.execute(select(Account).where(Account.user_telegram_id == user_id))
-    return result.scalars().first()
+    result = await db.execute(select(Account).where(Account.user_telegram_id == user_id)); return result.scalars().first()
 
 async def get_all_accounts(db: AsyncSession) -> List[Account]:
-    result = await db.execute(select(Account).options(selectinload(Account.session)).order_by(Account.account_id))
-    return result.scalars().all()
+    result = await db.execute(select(Account).options(selectinload(Account.session)).order_by(Account.account_id)); return result.scalars().all()
 
 async def get_all_active_accounts(db: AsyncSession) -> List[Account]:
-    result = await db.execute(select(Account).where(Account.is_enabled == True))
-    return result.scalars().all()
+    result = await db.execute(select(Account).where(Account.is_enabled == True)); return result.scalars().all()
     
 async def delete_account(db: AsyncSession, account_name: str) -> bool:
     account = await get_account(db, account_name)
