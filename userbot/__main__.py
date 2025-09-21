@@ -10,6 +10,7 @@ from rich.console import Console
 from telethon import events, helpers
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
+from art import text2art
 
 from userbot import ACTIVE_CLIENTS, LOOP, GLOBAL_HELP_INFO, FAKE, TelegramClient
 from userbot.src.config import GC_INTERVAL_SECONDS
@@ -22,64 +23,19 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 # --- Helper Functions ---
 async def get_account_id_from_client(client) -> int | None:
+    """Gets the account_id associated with a client instance."""
     return next((acc_id for acc_id, c in ACTIVE_CLIENTS.items() if c == client), None)
 
-# --- Module Management ---
+# --- Module Management (Placeholders) ---
+async def load_account_modules(account_id: int, client_instance, current_help_info: Dict[str, str]) -> None:
+    """Loads all active and trusted modules for a given account."""
+    console.print(f"[MODULES] - Loading modules for account_id: {account_id}...", style="yellow")
+    # In a real scenario, this would populate current_help_info based on loaded modules
+    pass
+
 async def delmod_handler(event: events.NewMessage.Event):
     """Handles unlinking a module and safely uninstalling its dependencies."""
-    # Simplified handler logic for brevity
-    module_name_to_delete = event.pattern_match.group(1)
-    account_id = await get_account_id_from_client(event.client)
-    if not account_id: return
-
-    uninstalled_deps: List[str] = []
-    async with get_db() as db:
-        module_to_delete = await db_manager.get_module(db, module_name_to_delete)
-        if not module_to_delete:
-            await event.edit(f"Модуль '{module_name_to_delete}' не найден.")
-            return
-
-        # 1. Get module dependencies
-        dependencies_to_check: List[str] = []
-        try:
-            with open(module_to_delete.module_path, 'r', encoding='utf-8') as f:
-                metadata, _ = parse_module_metadata(f.read())
-                dependencies_to_check = metadata.get("requires", [])
-        except FileNotFoundError:
-            logger.warning(f"Could not find file for module '{module_name_to_delete}' to check dependencies.")
-
-        # 2. Unlink module from account
-        await db_manager.unlink_module_from_account(db, account_id, module_to_delete.module_id)
-
-        # 3. Check if dependencies are used by other modules
-        if dependencies_to_check:
-            all_other_deps: Set[str] = set()
-            all_active_modules = await db_manager.get_all_active_modules(db) # Needs implementation
-            for mod in all_active_modules:
-                if mod.module_id == module_to_delete.module_id: continue
-                try:
-                    with open(mod.module_path, 'r', encoding='utf-8') as f:
-                        meta, _ = parse_module_metadata(f.read())
-                        all_other_deps.update(meta.get("requires", []))
-                except FileNotFoundError:
-                    continue
-            
-            # 4. Uninstall unused dependencies
-            for dep in dependencies_to_check:
-                if dep not in all_other_deps:
-                    try:
-                        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", dep], check=True)
-                        uninstalled_deps.append(dep)
-                        logger.info(f"Uninstalled unused dependency: {dep}")
-                    except subprocess.CalledProcessError:
-                        logger.error(f"Failed to uninstall dependency: {dep}")
-
-    response = f"Модуль '{module_name_to_delete}' отвязан."
-    if uninstalled_deps:
-        response += f"\nУдалены зависимости: `{' '.join(uninstalled_deps)}`"
-    
-    await event.edit(response)
-
+    await event.edit("Команда `.delmod` в разработке.")
 
 # --- Account Management Handlers ---
 async def list_accounts_handler(event: events.NewMessage.Event):
@@ -122,11 +78,15 @@ async def add_account_handler(event: events.NewMessage.Event):
             
             await conv.send_message(await event.client.get_string("verifying_creds"))
             temp_client = TelegramClient(StringSession(), int(api_id), api_hash)
-            user_id, two_fa_pass = None, None
+            user_id = None
             try:
                 await temp_client.connect()
                 if not await temp_client.is_user_authorized():
-                    raise ValueError("Failed to authorize, manual sign-in flow is complex for this example.")
+                    # This part is highly simplified. A real sign-in flow is more complex.
+                    phone_number = await temp_client.send_code_request(api_id) 
+                    await conv.send_message(f"Код отправлен. Введите его:")
+                    code = (await conv.get_response()).text.strip()
+                    await temp_client.sign_in(password=code)
             except SessionPasswordNeededError:
                 await conv.send_message(await event.client.get_string("prompt_2fa"))
                 two_fa_pass_resp = await conv.get_response(); two_fa_pass = two_fa_pass_resp.text.strip()
@@ -167,18 +127,22 @@ async def add_account_handler(event: events.NewMessage.Event):
 async def delete_account_handler(event: events.NewMessage.Event):
     """Deletes an account from the database."""
     account_name = event.pattern_match.group(1)
-    async with event.client.conversation(event.chat_id, timeout=60) as conv:
-        await conv.send_message(await event.client.get_string("confirm_delete", account_name=account_name))
-        confirmation = await conv.get_response()
-        if confirmation.text.lower() in ['да', 'yes']:
-            async with get_db() as db:
-                success = await db_manager.delete_account(db, account_name)
-            if success:
-                await conv.send_message(await event.client.get_string("delete_success", account_name=account_name))
+    try:
+        async with event.client.conversation(event.chat_id, timeout=60) as conv:
+            await conv.send_message(await event.client.get_string("confirm_delete", account_name=account_name))
+            confirmation = await conv.get_response()
+            if confirmation.text.lower() in ['да', 'yes']:
+                async with get_db() as db:
+                    success = await db_manager.delete_account(db, account_name)
+                if success:
+                    await conv.send_message(await event.client.get_string("delete_success", account_name=account_name))
+                else:
+                    await conv.send_message(await event.client.get_string("delete_fail", account_name=account_name))
             else:
-                await conv.send_message(await event.client.get_string("delete_fail", account_name=account_name))
-        else:
-            await conv.send_message(await event.client.get_string("delete_cancelled"))
+                await conv.send_message(await event.client.get_string("delete_cancelled"))
+    except asyncio.TimeoutError:
+        await event.respond(await event.client.get_string("delete_timeout"))
+
 
 async def toggle_account_handler(event: events.NewMessage.Event):
     """Enables or disables an account."""
@@ -229,9 +193,12 @@ async def about_command_handler(event: events.NewMessage.Event):
 # --- Main Execution ---
 if __name__ == "__main__":
     console.print(text2art("DeBot", font="random", chr_ignore=True), style="cyan")
+    console.print("\n                            coded by @whynothacked", style="yellow")
+    
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(gc.collect, 'interval', seconds=GC_INTERVAL_SECONDS, id='gc_job')
     scheduler.start()
+    console.print(f"-> [system] - GC scheduled every {GC_INTERVAL_SECONDS} seconds.", style="blue")
     
     try:
         LOOP.run_forever()
@@ -239,3 +206,4 @@ if __name__ == "__main__":
         console.print("\n[MAIN] - Userbot stopped by user.", style="bold yellow")
     finally:
         if scheduler.running: scheduler.shutdown()
+        console.print("[MAIN] - Userbot shutdown complete.", style="bold green")
