@@ -5,7 +5,9 @@ from typing import Dict, Optional, Any, List
 
 from faker import Faker
 from telethon import TelegramClient as TelethonTelegramClient, events
+from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.sessions import StringSession
+from telethon.errors.rpcerrorlist import UserAlreadyParticipantError
 
 from userbot.src.config import API_ID, API_HASH, LOG_LEVEL
 from userbot.src.db.session import initialize_database, get_db
@@ -16,56 +18,29 @@ import userbot.src.db_manager as db_manager
 from userbot.src.log_handler import DBLogHandler
 from userbot.src.locales import translator
 
-# --- Basic Setup ---
 logger: logging.Logger = logging.getLogger("userbot")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# --- Globals ---
 ACTIVE_CLIENTS: Dict[int, "TelegramClient"] = {}
 LOOP: asyncio.AbstractEventLoop = asyncio.get_event_loop()
 FAKE: Faker = Faker()
 GLOBAL_HELP_INFO: Dict[int, Dict[str, str]] = {}
 
-
-# --- Core TelegramClient Class ---
 class TelegramClient(TelethonTelegramClient):
-    """
-    Custom TelegramClient class with database interaction and localization methods.
-    """
     def __init__(self, *args, **kwargs):
-        """Initializes the custom Telegram client."""
         super().__init__(*args, **kwargs)
-        self.lang_code: str = 'ru' # Default, will be overridden during init
+        self.lang_code: str = 'ru'
 
     @property
     def current_account_id(self) -> Optional[int]:
-        """
-        Retrieves the account_id from the current DbSession.
-
-        Returns:
-            Optional[int]: The account ID if the session is a valid DbSession, otherwise None.
-        """
         if hasattr(self, 'session') and isinstance(self.session, DbSession):
             return self.session.account_id
         return None
     
     async def get_string(self, key: str, module_name: Optional[str] = None, **kwargs) -> str:
-        """
-        Retrieves a translated string for the client's configured language.
-
-        Args:
-            key (str): The key of the string to retrieve.
-            module_name (Optional[str]): The name of the module for module-specific strings.
-            **kwargs: Arguments for string formatting.
-
-        Returns:
-            str: The translated and formatted string.
-        """
         return translator.get_string(self.lang_code, key, module_name, **kwargs)
 
-# --- Startup Logic ---
 async def db_setup() -> None:
-    """Initializes the database and attaches the DB logger."""
     if not API_ID or not API_HASH:
         logger.critical("API_ID or API_HASH is not set. Please run 'python3 -m scripts.setup'. Exiting.")
         sys.exit(1)
@@ -84,42 +59,63 @@ async def db_setup() -> None:
     logger.info("Database schema checked and DB logger attached.")
 
 async def start_individual_client(client: TelegramClient, account: Account) -> None:
-    """Starts a client, loads its modules, and registers core handlers."""
     from userbot.__main__ import (
         load_account_modules, help_commands_handler, about_command_handler,
-        add_account_handler, delete_account_handler,
-        toggle_account_handler, list_accounts_handler, set_lang_handler
+        add_account_handler, delete_account_handler, toggle_account_handler,
+        list_accounts_handler, set_lang_handler, addmod_handler, delmod_handler,
+        trustmod_handler, configmod_handler, update_modules_handler, logs_handler
     )
 
     client.lang_code = account.lang_code
-    account_name = account.account_name
     account_id = account.account_id
 
-    logger.info(f"Attempting to start client for account: {account_name} (ID: {account_id})...")
+    logger.info(f"Attempting to start client for account: {account.account_name} (ID: {account_id})...")
     try:
         await client.start()
         if await client.is_user_authorized():
-            logger.info(f"Client for account '{account_name}' (ID: {account_id}) is authorized.")
+            logger.info(f"Client for account '{account.account_name}' (ID: {account_id}) is authorized.")
             GLOBAL_HELP_INFO[account_id] = {}
             
+            # Core handlers
             client.add_event_handler(help_commands_handler, events.NewMessage(outgoing=True, pattern=r"^\.help$"))
             client.add_event_handler(about_command_handler, events.NewMessage(outgoing=True, pattern=r"^\.about$"))
+            
+            # Account management
             client.add_event_handler(list_accounts_handler, events.NewMessage(outgoing=True, pattern=r"^\.listaccs$"))
             client.add_event_handler(add_account_handler, events.NewMessage(outgoing=True, pattern=r"^\.addacc\s+([a-zA-Z0-9_]+)$"))
             client.add_event_handler(delete_account_handler, events.NewMessage(outgoing=True, pattern=r"^\.delacc\s+([a-zA-Z0-9_]+)$"))
             client.add_event_handler(toggle_account_handler, events.NewMessage(outgoing=True, pattern=r"^\.toggleacc\s+([a-zA-Z0-9_]+)$"))
             client.add_event_handler(set_lang_handler, events.NewMessage(outgoing=True, pattern=r"^\.setlang\s+([a-zA-Z]{2,5})$"))
             
+            # Module management
+            client.add_event_handler(addmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.addmod$"))
+            client.add_event_handler(delmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.delmod\s+([a-zA-Z0-9_.-]+)$"))
+            client.add_event_handler(trustmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.trustmod\s+([a-zA-Z0-9_.-]+)$"))
+            client.add_event_handler(configmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.configmod\s+([a-zA-Z0-9_.-]+)\s+([\w\.-]+)\s+(.*)$"))
+            client.add_event_handler(update_modules_handler, events.NewMessage(outgoing=True, pattern=r"^\.update_modules$"))
+
+            # System handlers
+            client.add_event_handler(logs_handler, events.NewMessage(outgoing=True, pattern=r"^\.logs(?:\s+(\w+))?(.*)?$"))
+
             await load_account_modules(account_id, client, GLOBAL_HELP_INFO[account_id])
+            
+            # Auto-subscribe to channel
+            try:
+                await client(JoinChannelRequest('https://t.me/DeBot_userbot'))
+                logger.info(f"Account '{account.account_name}' successfully subscribed to the main channel.")
+            except UserAlreadyParticipantError:
+                pass # Already a member, no action needed
+            except Exception as e:
+                logger.warning(f"Could not subscribe '{account.account_name}' to the channel: {e}")
+
         else:
-            logger.warning(f"Client for '{account_name}' started, but user is NOT authorized.")
+            logger.warning(f"Client for '{account.account_name}' started, but user is NOT authorized.")
     except Exception as e:
-        logger.error(f"Error starting client for '{account_name}': {e}", exc_info=True)
+        logger.error(f"Error starting client for '{account.account_name}': {e}", exc_info=True)
         if account_id in ACTIVE_CLIENTS:
             del ACTIVE_CLIENTS[account_id]
 
 async def manage_clients() -> None:
-    """Fetches all enabled accounts from DB and starts them concurrently."""
     logger.info("Fetching all enabled accounts from the database...")
     all_accounts: List[Account] = []
     try:
@@ -130,8 +126,7 @@ async def manage_clients() -> None:
         return
 
     if not all_accounts:
-        logger.warning("No enabled accounts found in the database. No clients will be started.")
-        logger.info("Use 'docker compose exec userbot python3 -m scripts.manage_account add <name>' to add your first account.")
+        logger.warning("No enabled accounts found. No clients will be started.")
         return
 
     logger.info(f"Found {len(all_accounts)} enabled accounts. Starting clients...")
@@ -144,14 +139,7 @@ async def manage_clients() -> None:
             logger.error(f"Could not decrypt credentials for account '{account.account_name}'. Skipping. Error: {e}")
             continue
 
-        new_client: TelegramClient = TelegramClient(
-            session=DbSession(account_id=account.account_id),
-            api_id=int(acc_api_id),
-            api_hash=acc_api_hash,
-            device_model=account.device_model,
-            system_version=account.system_version,
-            app_version=account.app_version,
-        )
+        new_client: TelegramClient = TelegramClient(session=DbSession(account_id=account.account_id), api_id=int(acc_api_id), api_hash=acc_api_hash, device_model=account.device_model, system_version=account.system_version, app_version=account.app_version)
         ACTIVE_CLIENTS[account.account_id] = new_client
         tasks.append(start_individual_client(new_client, account))
     

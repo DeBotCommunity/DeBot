@@ -19,17 +19,20 @@ DB_NAME: str = os.getenv("DB_NAME", "userbot_db")
 DB_CONN_RETRIES: int = int(os.getenv("DB_CONN_RETRIES", 5))
 DB_CONN_RETRY_DELAY: int = int(os.getenv("DB_CONN_RETRY_DELAY", 5))
 
-
 # --- Application Settings ---
 MODULE_FOLDER: str = "userbot.modules"
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
-# New: Logging queue settings
+TIMEZONE: str = os.getenv("TIMEZONE", "Etc/GMT-3")
+
+# --- Logging Queue & Rotation ---
 LOG_QUEUE_INTERVAL_SECONDS: int = int(os.getenv("LOG_QUEUE_INTERVAL_SECONDS", 5))
 LOG_QUEUE_BATCH_SIZE: int = int(os.getenv("LOG_QUEUE_BATCH_SIZE", 50))
-
+LOG_ROTATION_ENABLED: bool = os.getenv("LOG_ROTATION_ENABLED", "True").lower() in ('true', '1', 't')
+LOG_RETENTION_DAYS: int = int(os.getenv("LOG_RETENTION_DAYS", 30))
 
 # --- Scheduler Settings ---
-GC_INTERVAL_SECONDS: int = int(os.getenv("GC_INTERVAL_SECONDS", 60))
+GC_INTERVAL_SECONDS: int = int(os.getenv("GC_INTERVAL_SECONDS", 3600))
+MODULE_UPDATE_INTERVAL_MINUTES: int = int(os.getenv("MODULE_UPDATE_INTERVAL_MINUTES", 1440))
 AUTO_UPDATE_ENABLED: bool = os.getenv("AUTO_UPDATE_ENABLED", "False").lower() in ('true', '1', 't')
 AUTO_UPDATE_INTERVAL_MINUTES: int = int(os.getenv("AUTO_UPDATE_INTERVAL_MINUTES", 1440))
-DEPLOY_TYPE: str = os.getenv("DEPLOY_TYPE", "source") # 'source' or 'image'
+DEPLOY_TYPE: str = os.getenv("DEPLOY_TYPE", "source")
