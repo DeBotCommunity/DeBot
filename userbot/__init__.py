@@ -23,7 +23,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 # --- Globals ---
 ACTIVE_CLIENTS: Dict[int, "TelegramClient"] = {}
 LOOP: asyncio.AbstractEventLoop = asyncio.get_event_loop()
-# Re-adding FAKE and GLOBAL_HELP_INFO to resolve the ImportError in __main__.py
 FAKE: Faker = Faker()
 GLOBAL_HELP_INFO: Dict[int, Dict[str, str]] = {}
 
@@ -101,10 +100,8 @@ async def start_individual_client(client: TelegramClient, account: Account) -> N
         await client.start()
         if await client.is_user_authorized():
             logger.info(f"Client for account '{account_name}' (ID: {account_id}) is authorized.")
-            # Initialize help_info dict for this client
             GLOBAL_HELP_INFO[account_id] = {}
             
-            # Register core handlers
             client.add_event_handler(help_commands_handler, events.NewMessage(outgoing=True, pattern=r"^\.help$"))
             client.add_event_handler(about_command_handler, events.NewMessage(outgoing=True, pattern=r"^\.about$"))
             client.add_event_handler(list_accounts_handler, events.NewMessage(outgoing=True, pattern=r"^\.listaccs$"))
@@ -113,8 +110,7 @@ async def start_individual_client(client: TelegramClient, account: Account) -> N
             client.add_event_handler(toggle_account_handler, events.NewMessage(outgoing=True, pattern=r"^\.toggleacc\s+([a-zA-Z0-9_]+)$"))
             client.add_event_handler(set_lang_handler, events.NewMessage(outgoing=True, pattern=r"^\.setlang\s+([a-zA-Z]{2,5})$"))
             
-            # Placeholder for module handlers
-            # await load_account_modules(account_id, client, GLOBAL_HELP_INFO[account_id])
+            await load_account_modules(account_id, client, GLOBAL_HELP_INFO[account_id])
         else:
             logger.warning(f"Client for '{account_name}' started, but user is NOT authorized.")
     except Exception as e:
@@ -160,19 +156,3 @@ async def manage_clients() -> None:
         tasks.append(start_individual_client(new_client, account))
     
     await asyncio.gather(*tasks)
-
-# --- Main Execution Block ---
-# This logic ensures the script can be run directly but not when imported.
-if __name__ != "userbot":
-    if LOOP.is_running():
-        asyncio.ensure_future(db_setup())
-        asyncio.ensure_future(manage_clients())
-    else:
-        try:
-            LOOP.run_until_complete(db_setup())
-            LOOP.run_until_complete(manage_clients())
-        except Exception as e:
-            logger.critical(f"Failed during initial setup: {e}")
-            sys.exit(1)
-
-    logger.info("Userbot __init__ finished. Client management tasks scheduled.")
