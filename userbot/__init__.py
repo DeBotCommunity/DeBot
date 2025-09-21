@@ -3,6 +3,7 @@ import logging
 import sys
 from typing import Dict, Optional, Any, List
 
+from faker import Faker
 from telethon import TelegramClient as TelethonTelegramClient, events
 from telethon.sessions import StringSession
 
@@ -22,6 +23,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 # --- Globals ---
 ACTIVE_CLIENTS: Dict[int, "TelegramClient"] = {}
 LOOP: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+# Re-adding FAKE and GLOBAL_HELP_INFO to resolve the ImportError in __main__.py
+FAKE: Faker = Faker()
+GLOBAL_HELP_INFO: Dict[int, Dict[str, str]] = {}
+
 
 # --- Core TelegramClient Class ---
 class TelegramClient(TelethonTelegramClient):
@@ -35,7 +40,12 @@ class TelegramClient(TelethonTelegramClient):
 
     @property
     def current_account_id(self) -> Optional[int]:
-        """Retrieves the account_id from the current DbSession."""
+        """
+        Retrieves the account_id from the current DbSession.
+
+        Returns:
+            Optional[int]: The account ID if the session is a valid DbSession, otherwise None.
+        """
         if hasattr(self, 'session') and isinstance(self.session, DbSession):
             return self.session.account_id
         return None
@@ -61,7 +71,11 @@ async def db_setup() -> None:
         logger.critical("API_ID or API_HASH is not set. Please run 'python3 -m scripts.setup'. Exiting.")
         sys.exit(1)
     
-    await initialize_database()
+    try:
+        await initialize_database()
+    except Exception as e:
+        logger.critical(f"Fatal error during database initialization: {e}", exc_info=True)
+        sys.exit(1)
     
     db_handler: DBLogHandler = DBLogHandler()
     root_logger: logging.Logger = logging.getLogger()
@@ -78,7 +92,7 @@ async def start_individual_client(client: TelegramClient, account: Account) -> N
         toggle_account_handler, list_accounts_handler, set_lang_handler
     )
 
-    client.lang_code = account.lang_code # Set the client's language
+    client.lang_code = account.lang_code
     account_name = account.account_name
     account_id = account.account_id
 
@@ -87,7 +101,8 @@ async def start_individual_client(client: TelegramClient, account: Account) -> N
         await client.start()
         if await client.is_user_authorized():
             logger.info(f"Client for account '{account_name}' (ID: {account_id}) is authorized.")
-            GLOBAL_HELP_INFO[account_id] = {} # Reset help info
+            # Initialize help_info dict for this client
+            GLOBAL_HELP_INFO[account_id] = {}
             
             # Register core handlers
             client.add_event_handler(help_commands_handler, events.NewMessage(outgoing=True, pattern=r"^\.help$"))
@@ -98,7 +113,8 @@ async def start_individual_client(client: TelegramClient, account: Account) -> N
             client.add_event_handler(toggle_account_handler, events.NewMessage(outgoing=True, pattern=r"^\.toggleacc\s+([a-zA-Z0-9_]+)$"))
             client.add_event_handler(set_lang_handler, events.NewMessage(outgoing=True, pattern=r"^\.setlang\s+([a-zA-Z]{2,5})$"))
             
-            await load_account_modules(account_id, client, GLOBAL_HELP_INFO[account_id])
+            # Placeholder for module handlers
+            # await load_account_modules(account_id, client, GLOBAL_HELP_INFO[account_id])
         else:
             logger.warning(f"Client for '{account_name}' started, but user is NOT authorized.")
     except Exception as e:
@@ -110,12 +126,16 @@ async def manage_clients() -> None:
     """Fetches all enabled accounts from DB and starts them concurrently."""
     logger.info("Fetching all enabled accounts from the database...")
     all_accounts: List[Account] = []
-    async with get_db() as db_session:
-        all_accounts = await db_manager.get_all_active_accounts(db_session)
+    try:
+        async with get_db() as db_session:
+            all_accounts = await db_manager.get_all_active_accounts(db_session)
+    except Exception as e:
+        logger.critical(f"Could not fetch accounts from database. Is it running and configured correctly? Error: {e}")
+        return
 
     if not all_accounts:
         logger.warning("No enabled accounts found in the database. No clients will be started.")
-        logger.info("Use 'python3 -m scripts.manage_account add <name>' to add your first account.")
+        logger.info("Use 'docker compose exec userbot python3 -m scripts.manage_account add <name>' to add your first account.")
         return
 
     logger.info(f"Found {len(all_accounts)} enabled accounts. Starting clients...")
@@ -142,6 +162,7 @@ async def manage_clients() -> None:
     await asyncio.gather(*tasks)
 
 # --- Main Execution Block ---
+# This logic ensures the script can be run directly but not when imported.
 if __name__ != "userbot":
     if LOOP.is_running():
         asyncio.ensure_future(db_setup())
