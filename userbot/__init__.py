@@ -5,7 +5,6 @@ from typing import Dict, Optional, Any, List
 
 from faker import Faker
 from telethon import TelegramClient as TelethonTelegramClient, events
-from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.sessions import StringSession
 from telethon.errors.rpcerrorlist import UserAlreadyParticipantError
 
@@ -18,16 +17,32 @@ import userbot.src.db_manager as db_manager
 from userbot.src.log_handler import DBLogHandler
 from userbot.src.locales import translator
 
+# --- Basic Setup ---
 logger: logging.Logger = logging.getLogger("userbot")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
+# --- Globals ---
 ACTIVE_CLIENTS: Dict[int, "TelegramClient"] = {}
 LOOP: asyncio.AbstractEventLoop = asyncio.get_event_loop()
 FAKE: Faker = Faker()
 GLOBAL_HELP_INFO: Dict[int, Dict[str, str]] = {}
 
+# --- Helper Functions ---
+def _generate_random_device() -> Dict[str, str]:
+    """Generates a dictionary with random device information."""
+    return {
+        "device_model": FAKE.user_agent(),
+        "system_version": f"SDK {FAKE.random_int(min=28, max=33)}",
+        "app_version": f"{FAKE.random_int(min=9, max=10)}.{FAKE.random_int(min=0, max=9)}.{FAKE.random_int(min=0, max=9)}"
+    }
+
+# --- Core TelegramClient Class ---
 class TelegramClient(TelethonTelegramClient):
+    """
+    Custom TelegramClient class with database interaction and localization methods.
+    """
     def __init__(self, *args, **kwargs):
+        """Initializes the custom Telegram client."""
         super().__init__(*args, **kwargs)
         self.lang_code: str = 'ru'
 
@@ -40,6 +55,7 @@ class TelegramClient(TelethonTelegramClient):
     async def get_string(self, key: str, module_name: Optional[str] = None, **kwargs) -> str:
         return translator.get_string(self.lang_code, key, module_name, **kwargs)
 
+# --- Startup Logic ---
 async def db_setup() -> None:
     if not API_ID or not API_HASH:
         logger.critical("API_ID or API_HASH is not set. Please run 'python3 -m scripts.setup'. Exiting.")
@@ -76,35 +92,21 @@ async def start_individual_client(client: TelegramClient, account: Account) -> N
             logger.info(f"Client for account '{account.account_name}' (ID: {account_id}) is authorized.")
             GLOBAL_HELP_INFO[account_id] = {}
             
-            # Core handlers
             client.add_event_handler(help_commands_handler, events.NewMessage(outgoing=True, pattern=r"^\.help$"))
             client.add_event_handler(about_command_handler, events.NewMessage(outgoing=True, pattern=r"^\.about$"))
-            
-            # Account management
             client.add_event_handler(list_accounts_handler, events.NewMessage(outgoing=True, pattern=r"^\.listaccs$"))
             client.add_event_handler(add_account_handler, events.NewMessage(outgoing=True, pattern=r"^\.addacc\s+([a-zA-Z0-9_]+)$"))
             client.add_event_handler(delete_account_handler, events.NewMessage(outgoing=True, pattern=r"^\.delacc\s+([a-zA-Z0-9_]+)$"))
             client.add_event_handler(toggle_account_handler, events.NewMessage(outgoing=True, pattern=r"^\.toggleacc\s+([a-zA-Z0-9_]+)$"))
             client.add_event_handler(set_lang_handler, events.NewMessage(outgoing=True, pattern=r"^\.setlang\s+([a-zA-Z]{2,5})$"))
             
-            # Module management
-            client.add_event_handler(addmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.addmod$"))
-            client.add_event_handler(delmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.delmod\s+([a-zA-Z0-9_.-]+)$"))
-            client.add_event_handler(trustmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.trustmod\s+([a-zA-Z0-9_.-]+)$"))
-            client.add_event_handler(configmod_handler, events.NewMessage(outgoing=True, pattern=r"^\.configmod\s+([a-zA-Z0-9_.-]+)\s+([\w\.-]+)\s+(.*)$"))
-            client.add_event_handler(update_modules_handler, events.NewMessage(outgoing=True, pattern=r"^\.update_modules$"))
-
-            # System handlers
-            client.add_event_handler(logs_handler, events.NewMessage(outgoing=True, pattern=r"^\.logs(?:\s+(\w+))?(.*)?$"))
-
             await load_account_modules(account_id, client, GLOBAL_HELP_INFO[account_id])
             
-            # Auto-subscribe to channel
             try:
                 await client(JoinChannelRequest('https://t.me/DeBot_userbot'))
                 logger.info(f"Account '{account.account_name}' successfully subscribed to the main channel.")
             except UserAlreadyParticipantError:
-                pass # Already a member, no action needed
+                pass
             except Exception as e:
                 logger.warning(f"Could not subscribe '{account.account_name}' to the channel: {e}")
 
@@ -139,7 +141,20 @@ async def manage_clients() -> None:
             logger.error(f"Could not decrypt credentials for account '{account.account_name}'. Skipping. Error: {e}")
             continue
 
-        new_client: TelegramClient = TelegramClient(session=DbSession(account_id=account.account_id), api_id=int(acc_api_id), api_hash=acc_api_hash, device_model=account.device_model, system_version=account.system_version, app_version=account.app_version)
+        proxy_details = None
+        if account.proxy_ip and account.proxy_port and account.proxy_type:
+             # Logic to construct proxy dict for Telethon would go here
+             pass
+
+        new_client: TelegramClient = TelegramClient(
+            session=DbSession(account_id=account.account_id), 
+            api_id=int(acc_api_id), 
+            api_hash=acc_api_hash, 
+            device_model=account.device_model, 
+            system_version=account.system_version, 
+            app_version=account.app_version,
+            proxy=proxy_details
+        )
         ACTIVE_CLIENTS[account.account_id] = new_client
         tasks.append(start_individual_client(new_client, account))
     
