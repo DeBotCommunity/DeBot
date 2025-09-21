@@ -3,74 +3,125 @@ import sys
 from pathlib import Path
 import getpass
 import argparse
+import logging
 
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+from telethon.sessions import StringSession
+from telethon.errors import SessionPasswordNeededError
+
+from userbot import FAKE, TelegramClient
 from userbot.src.db.session import get_db, initialize_database
 import userbot.src.db_manager as db_manager
 from userbot.src.encrypt import encryption_manager
-from userbot import FAKE
+
+# Configure logging to suppress noisy output from libraries
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger('manage_account_cli')
+logger.setLevel(logging.INFO)
 
 async def add_account_logic(args):
-    """Logic to add a new account."""
-    print(f"--- Adding new account: {args.name} ---")
-    async with get_db() as db:
-        if await db_manager.get_account(db, args.name):
-            print(f"Error: Account '{args.name}' already exists.")
-            return
+    """
+    Logic to add a new account with a full interactive Telethon login session.
+    """
+    logger.info(f"--- Adding new account: {args.name} ---")
+    
+    temp_client = None
+    try:
+        async with get_db() as db:
+            if await db_manager.get_account(db, args.name):
+                logger.error(f"Error: Account '{args.name}' already exists.")
+                return
 
-        api_id = input("Enter API ID: ").strip()
-        api_hash = getpass.getpass("Enter API Hash: ").strip()
-        lang_code = input("Enter language code (e.g., ru, en) [ru]: ").strip() or 'ru'
-        is_enabled = input("Enable this account now? (yes/no) [yes]: ").strip().lower() != 'no'
-        
-        device_model = FAKE.user_agent()
-        system_version = f"SDK {FAKE.random_int(min=28, max=33)}"
-        app_version = f"{FAKE.random_int(min=9, max=10)}.{FAKE.random_int(min=0, max=9)}.{FAKE.random_int(min=0, max=9)}"
-        
-        new_account = await db_manager.add_account(
-            db, args.name, api_id, api_hash, lang_code, is_enabled,
-            device_model, system_version, app_version
-        )
-        if new_account:
-            print(f"\nSuccess! Account '{args.name}' was added.")
-        else:
-            print("\nFailed to add the account.")
+            api_id = input("Enter API ID: ").strip()
+            api_hash = getpass.getpass("Enter API Hash: ").strip()
+
+            if not api_id.isdigit() or not api_hash:
+                logger.error("Error: API ID must be a number and API Hash cannot be empty.")
+                return
+            
+            logger.info("Initializing temporary session to verify credentials...")
+            temp_client = TelegramClient(StringSession(), int(api_id), api_hash)
+            await temp_client.connect()
+
+            if not await temp_client.is_user_authorized():
+                phone_number = input("Session not found. Please enter your phone number (e.g., +1234567890): ").strip()
+                await temp_client.send_code_request(phone_number)
+                code = input("Please enter the code you received: ").strip()
+                try:
+                    await temp_client.sign_in(phone_number, code)
+                except SessionPasswordNeededError:
+                    two_fa_password = getpass.getpass("2FA Password required: ").strip()
+                    await temp_client.sign_in(password=two_fa_password)
+
+            me = await temp_client.get_me()
+            user_id = me.id
+            logger.info(f"Successfully logged in as {me.first_name} (ID: {user_id}).")
+
+            # Check for duplicates by Telegram User ID
+            existing_by_id = await db_manager.get_account_by_user_id(db, user_id)
+            if existing_by_id:
+                logger.error(f"Error: This Telegram account (ID: {user_id}) already exists in the database as '{existing_by_id.account_name}'.")
+                return
+
+            # Collect remaining information
+            lang_code = input(f"Enter language code (e.g., ru, en) [default: ru]: ").strip() or 'ru'
+            is_enabled = (input("Enable this account now? (yes/no) [default: yes]: ").strip().lower() or 'yes').startswith('y')
+            
+            device_model = FAKE.user_agent()
+            system_version = f"SDK {FAKE.random_int(min=28, max=33)}"
+            app_version = f"{FAKE.random_int(min=9, max=10)}.{FAKE.random_int(min=0, max=9)}.{FAKE.random_int(min=0, max=9)}"
+            
+            new_account = await db_manager.add_account(
+                db, args.name, api_id, api_hash, lang_code, is_enabled,
+                device_model, system_version, app_version, user_id
+            )
+            if new_account:
+                logger.info(f"\nSuccess! Account '{args.name}' was added. Restart the bot to activate the session.")
+            else:
+                logger.error("\nFailed to add the account to the database.")
+
+    except Exception as e:
+        logger.error(f"\nAn unexpected error occurred: {e}", exc_info=False)
+    finally:
+        if temp_client and temp_client.is_connected():
+            await temp_client.disconnect()
+
 
 async def toggle_account_logic(args):
     """Logic to toggle an account's status."""
-    print(f"--- Toggling account: {args.name} ---")
+    logger.info(f"--- Toggling account: {args.name} ---")
     async with get_db() as db:
         new_status = await db_manager.toggle_account_status(db, args.name)
         if new_status is None:
-            print(f"Error: Account '{args.name}' not found.")
+            logger.error(f"Error: Account '{args.name}' not found.")
         else:
             status_str = "ENABLED" if new_status else "DISABLED"
-            print(f"Success! Account '{args.name}' is now {status_str}.")
+            logger.info(f"Success! Account '{args.name}' is now {status_str}.")
 
 async def delete_account_logic(args):
     """Logic to delete an account."""
-    print(f"--- Deleting account: {args.name} ---")
+    logger.info(f"--- Deleting account: {args.name} ---")
     confirm = input(f"Are you sure you want to permanently delete '{args.name}'? (yes/no): ").lower()
     if confirm == 'yes':
         async with get_db() as db:
             if await db_manager.delete_account(db, args.name):
-                print(f"Success! Account '{args.name}' has been deleted.")
+                logger.info(f"Success! Account '{args.name}' has been deleted.")
             else:
-                print(f"Error: Account '{args.name}' not found.")
+                logger.error(f"Error: Account '{args.name}' not found.")
     else:
-        print("Deletion cancelled.")
+        logger.info("Deletion cancelled.")
 
 async def edit_account_logic(args):
     """Logic to edit an account's properties."""
-    print(f"--- Editing account: {args.name} ---")
+    logger.info(f"--- Editing account: {args.name} ---")
     async with get_db() as db:
         account = await db_manager.get_account(db, args.name)
         if not account:
-            print(f"Error: Account '{args.name}' not found.")
+            logger.error(f"Error: Account '{args.name}' not found.")
             return
 
         updated_fields = []
@@ -95,6 +146,10 @@ async def edit_account_logic(args):
             account.proxy_password = None
             updated_fields.append("Proxy settings CLEARED")
         elif args.proxy_type:
+            # Requires all proxy args
+            if not (args.proxy_ip and args.proxy_port):
+                logger.error("Error: --proxy-ip and --proxy-port are required when setting a proxy.")
+                return
             account.proxy_type = args.proxy_type
             account.proxy_ip = args.proxy_ip
             account.proxy_port = args.proxy_port
@@ -103,18 +158,18 @@ async def edit_account_logic(args):
             updated_fields.append("Proxy settings UPDATED")
         
         if updated_fields:
-            print("Success! The following fields were updated:")
+            logger.info("Success! The following fields were updated:")
             for field in updated_fields:
-                print(f"- {field}")
+                logger.info(f"- {field}")
         else:
-            print("No changes specified. Use --help for options.")
+            logger.info("No changes specified. Use --help for options.")
 
 async def main():
     """Main function to parse arguments and dispatch commands."""
     parser = argparse.ArgumentParser(description="DeBot Account Management CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    parser_add = subparsers.add_parser("add", help="Add a new account")
+    parser_add = subparsers.add_parser("add", help="Add a new account via interactive login")
     parser_add.add_argument("name", help="Unique name for the new account")
     parser_add.set_defaults(func=add_account_logic)
     
@@ -149,4 +204,9 @@ async def main():
     await args.func(args)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, EOFError):
+        logger.info("\nOperation cancelled by user.")
+    except Exception as e:
+        logger.error(f"A critical error occurred: {e}", exc_info=True)
