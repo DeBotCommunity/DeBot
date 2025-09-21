@@ -84,7 +84,7 @@ async def add_account_handler(event: events.NewMessage.Event):
             
             await conv.send_message(await event.client.get_string("verifying_creds"))
             temp_client = TelegramClient(StringSession(), int(api_id), api_hash)
-            user_id = None
+            
             try:
                 await temp_client.connect()
                 if not await temp_client.is_user_authorized():
@@ -102,7 +102,9 @@ async def add_account_handler(event: events.NewMessage.Event):
                 await pass_resp.delete()
                 await temp_client.sign_in(password=two_fa_pass)
             
-            me = await temp_client.get_me(); user_id = me.id
+            me = await temp_client.get_me(input_peer=True)
+            user_id = me.user_id
+            access_hash = me.access_hash
             await temp_client.disconnect()
 
             async with get_db() as db:
@@ -119,8 +121,17 @@ async def add_account_handler(event: events.NewMessage.Event):
             await conv.send_message(await event.client.get_string("saving_to_db"))
             async with get_db() as db:
                 new_acc = await db_manager.add_account(
-                    db, account_name, api_id, api_hash, lang_code, is_enabled,
-                    device_details['device_model'], device_details['system_version'], device_details['app_version'], user_id
+                    db,
+                    account_name=account_name,
+                    api_id=api_id,
+                    api_hash=api_hash,
+                    lang_code=lang_code,
+                    is_enabled=is_enabled,
+                    device_model=device_details['device_model'],
+                    system_version=device_details['system_version'],
+                    app_version=device_details['app_version'],
+                    user_telegram_id=user_id,
+                    access_hash=access_hash
                 )
             
             if new_acc:

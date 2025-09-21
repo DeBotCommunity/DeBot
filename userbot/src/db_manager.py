@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from userbot.src.encrypt import encryption_manager
 from userbot.src.db.models import Account, Session, Module, AccountModule, Log, ModuleData
+from userbot.src.db.session import get_db
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -24,21 +25,62 @@ async def add_account(
     system_version: str,
     app_version: str,
     user_telegram_id: int,
-    access_hash: int
+    access_hash: int,
+    proxy_type: Optional[str] = None,
+    proxy_ip: Optional[str] = None,
+    proxy_port: Optional[int] = None,
+    proxy_username: Optional[str] = None,
+    proxy_password: Optional[str] = None
 ) -> Optional[Account]:
-    """Adds a new account, including its access_hash, to the database."""
+    """
+    Adds a new account with its full configuration to the database.
+
+    Args:
+        db (AsyncSession): The database session.
+        account_name (str): The unique name for the account.
+        api_id (str): The user's API ID.
+        api_hash (str): The user's API Hash.
+        lang_code (str): The language code for the account.
+        is_enabled (bool): Whether the account should be active.
+        device_model (str): The device model for the session.
+        system_version (str): The system version for the session.
+        app_version (str): The app version for the session.
+        user_telegram_id (int): The Telegram user ID.
+        access_hash (int): The user's access hash.
+        proxy_type (Optional[str]): The type of proxy (e.g., 'http', 'socks5').
+        proxy_ip (Optional[str]): The proxy IP address.
+        proxy_port (Optional[int]): The proxy port.
+        proxy_username (Optional[str]): The username for proxy authentication.
+        proxy_password (Optional[str]): The password for proxy authentication.
+
+    Returns:
+        Optional[Account]: The newly created Account object, or None on failure.
+    """
     try:
+        encrypted_proxy_user = None
+        if proxy_username:
+            encrypted_proxy_user = encryption_manager.encrypt(proxy_username.encode('utf-8'))
+
+        encrypted_proxy_pass = None
+        if proxy_password:
+            encrypted_proxy_pass = encryption_manager.encrypt(proxy_password.encode('utf-8'))
+
         new_account = Account(
             account_name=account_name,
-            api_id=encryption_manager.encrypt(str(api_id).encode('utf-8')),
-            api_hash=encryption_manager.encrypt(str(api_hash).encode('utf-8')),
+            api_id=encryption_manager.encrypt(api_id.encode('utf-8')),
+            api_hash=encryption_manager.encrypt(api_hash.encode('utf-8')),
             lang_code=lang_code,
             is_enabled=is_enabled,
             device_model=device_model,
             system_version=system_version,
             app_version=app_version,
             user_telegram_id=user_telegram_id,
-            access_hash=access_hash
+            access_hash=access_hash,
+            proxy_type=proxy_type,
+            proxy_ip=proxy_ip,
+            proxy_port=proxy_port,
+            proxy_username=encrypted_proxy_user,
+            proxy_password=encrypted_proxy_pass
         )
         db.add(new_account)
         await db.flush()
@@ -98,6 +140,24 @@ async def update_account_lang(db: AsyncSession, account_id: int, lang_code: str)
     stmt = update(Account).where(Account.account_id == account_id).values(lang_code=lang_code)
     result = await db.execute(stmt)
     return result.rowcount > 0
+
+async def update_account_self_info(account_id: int, user_id: int, access_hash: int) -> None:
+    """
+    Updates the user_telegram_id and access_hash for an account.
+
+    This is useful if the information changes or was missing initially.
+
+    Args:
+        account_id (int): The primary key of the account to update.
+        user_id (int): The Telegram user ID.
+        access_hash (int): The user's access hash.
+    """
+    async with get_db() as db:
+        stmt = update(Account).where(Account.account_id == account_id).values(
+            user_telegram_id=user_id,
+            access_hash=access_hash
+        )
+        await db.execute(stmt)
 
 # --- Session CRUD ---
 async def get_session(db: AsyncSession, account_id: int) -> Optional[Session]:

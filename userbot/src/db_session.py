@@ -128,7 +128,7 @@ class DbSession(Session):
         if key == 0:
             if self._self_user_id and self._self_access_hash:
                 return InputPeerUser(self._self_user_id, self._self_access_hash)
-        raise KeyError("Entity not found. Self-user ID and access hash were not available on session creation.")
+        raise KeyError("Self-user ID and/or access hash were not found in the database for this account.")
 
     def process_entities(self, tlo: object) -> None:
         if not hasattr(tlo, '__iter__'):
@@ -140,6 +140,10 @@ class DbSession(Session):
                     logger.info(f"Self-entity info for account {self.account_id} updated in-session.")
                     self._self_user_id = entity.id
                     self._self_access_hash = entity.access_hash
+                    # Persist the newly discovered access_hash to the database
+                    # This is a good place to ensure it's always up-to-date
+                    from asyncio import create_task
+                    create_task(db_manager.update_account_self_info(self.account_id, entity.id, entity.access_hash))
                 break
     
     def cache_file(self, md5_digest: bytes, file_size: int, instance: Any) -> None: pass
