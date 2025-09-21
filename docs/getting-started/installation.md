@@ -27,7 +27,7 @@ cd my_debot
 services:
   userbot:
     # Указываем готовый образ из Docker Hub
-    image: debotcommunity/debot:latest
+    image: whn0thacked/debot:latest
     container_name: debot_userbot
     env_file:
       - .env

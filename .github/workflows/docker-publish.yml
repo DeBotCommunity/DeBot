@@ -1,0 +1,76 @@
+# Имя рабочего процесса, которое будет отображаться в разделе "Actions" вашего репозитория GitHub.
+name: Docker Publish
+
+# Триггер: этот рабочий процесс будет запускаться автоматически при каждом пуше в ветки 'main' и 'dev'.
+on:
+  push:
+    branches:
+      - "main"
+      - "dev"
+
+jobs:
+  # Единственная задача в этом процессе, названная 'build-and-push'.
+  build-and-push:
+    # Указываем, что задача должна выполняться на последней версии Ubuntu, предоставляемой GitHub.
+    runs-on: ubuntu-latest
+
+    # Шаги, которые будут выполнены в рамках задачи.
+    steps:
+      # Шаг 1: Клонирование репозитория
+      # Использует стандартное действие для загрузки кода из вашего репозитория в рабочую область исполнителя.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Шаг 2: Настройка QEMU
+      # Необходимо для эмуляции и сборки образов под разные архитектуры (например, arm64),
+      # что является хорошей практикой для обеспечения совместимости.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # Шаг 3: Настройка Docker Buildx
+      # Устанавливает и настраивает Buildx - расширенный сборщик Docker, который предоставляет
+      # больше возможностей, чем стандартный 'docker build'.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Шаг 4: Вход в Docker Hub
+      # Выполняет вход в реестр Docker Hub, используя секреты, настроенные в репозитории.
+      #
+      # ВАЖНО: Перед использованием этого workflow вам необходимо настроить два секрета
+      # в вашем репозитории GitHub (Settings -> Secrets and variables -> Actions):
+      # 1. DOCKERHUB_USERNAME: Ваше имя пользователя в Docker Hub.
+      # 2. DOCKERHUB_TOKEN: Ваш токен доступа (Access Token) из Docker Hub. Не используйте пароль.
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      # Шаг 5: Извлечение метаданных (тегов) для Docker
+      # Этот шаг автоматически генерирует теги для образа на основе событий GitHub (пуш, ветка и т.д.).
+      # Это самый чистый и гибкий способ управления тегами.
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: whn0thacked/debot
+          tags: |
+            # type=sha создает тег с коротким SHA коммита (например, whn0thacked/debot:a1b2c3d)
+            # Это будет применяться для обеих веток.
+            type=sha,prefix=
+            # type=ref,event=branch создает тег с именем ветки (например, whn0thacked/debot:main, whn0thacked/debot:dev)
+            type=ref,event=branch
+            # type=raw,value=latest создает тег 'latest', но только если событие произошло в ветке по умолчанию (main).
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Шаг 6: Сборка и отправка образа
+      # Собирает Docker-образ и отправляет его в Docker Hub с тегами, сгенерированными на предыдущем шаге.
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # Используем теги, сгенерированные шагом 'meta'.
+          tags: ${{ steps.meta.outputs.tags }}
+          # Используем метки, сгенерированные шагом 'meta' (например, версия, sha и т.д.).
+          labels: ${{ steps.meta.outputs.labels }}
