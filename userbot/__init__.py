@@ -140,8 +140,7 @@ async def manage_clients() -> None:
                      encryption_manager.decrypt(account.proxy_password).decode() if account.proxy_password else None
                  )
         
-        # Use the asynchronous factory method to create the session
-        session = await DbSession.create(account_id=account.account_id)
+        session = DbSession(account_id=account.account_id)
 
         new_client: TelegramClient = TelegramClient(
             session=session, 

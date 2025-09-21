@@ -4,7 +4,7 @@ from typing import Optional, Tuple, Any, List
 
 from telethon.sessions.abstract import Session
 from telethon.crypto import AuthKey
-from telethon.tl.types import PeerUser
+from telethon.tl.types import InputPeerSelf
 
 import userbot.src.db_manager as db_manager
 from userbot.src.db.session import get_db
@@ -14,22 +14,22 @@ logger: logging.Logger = logging.getLogger(__name__)
 class DbSession(Session):
     """
     A Telethon session class that stores session data in a PostgreSQL database.
+    This implementation correctly provides all the abstract methods and properties
+    required by Telethon's base Session class.
     """
 
-    def __init__(self, account_id: int, self_user_id: Optional[int]):
+    def __init__(self, account_id: int):
         """
         Initializes the database-backed session.
 
         Args:
             account_id (int): The unique identifier for the account this session belongs to.
-            self_user_id (Optional[int]): The Telegram user ID of the account holder.
         """
         super().__init__()
         if not isinstance(account_id, int):
             raise ValueError("DbSession requires a valid integer account_id.")
             
         self.account_id: int = account_id
-        self._self_user_id: Optional[int] = self_user_id
         
         self._auth_key: Optional[AuthKey] = None
         self._dc_id: int = 0
@@ -41,29 +41,11 @@ class DbSession(Session):
         self._qts: Optional[int] = None
         self._date: Optional[int] = None
         self._seq: Optional[int] = None
-
-    @classmethod
-    async def create(cls, account_id: int) -> "DbSession":
-        """
-        Asynchronously creates and pre-loads a DbSession instance.
-        This factory method is used to fetch necessary data like the user_telegram_id
-        before the synchronous parts of the session are accessed by Telethon.
-
-        Args:
-            account_id (int): The unique identifier for the account.
-
-        Returns:
-            DbSession: A new instance of DbSession.
-        """
-        self_user_id: Optional[int] = None
-        async with get_db() as db:
-            account = await db_manager.get_account_by_id(db, account_id)
-            if account:
-                self_user_id = account.user_telegram_id
-        return cls(account_id, self_user_id)
         
     async def load(self) -> None:
-        """Loads the session data for the current account_id from the database."""
+        """
+        Loads the session data for the current account_id from the database.
+        """
         logger.debug(f"Attempting to load session for account_id: {self.account_id}")
         async with get_db() as db:
             session_data = await db_manager.get_session(db, self.account_id)
@@ -140,12 +122,12 @@ class DbSession(Session):
 
     def get_input_entity(self, key: Any) -> Any:
         """
-        Returns the input entity for the current user if key is 0.
-        This is crucial for the client to know "who it is" upon startup.
+        Returns InputPeerSelf() if key is 0, which tells Telethon to use the
+        currently authorized user. This is the correct way to handle "self" lookups.
         """
-        if key == 0 and self._self_user_id is not None:
-            return PeerUser(self._self_user_id)
-        raise KeyError("Entity not found in DbSession cache (caching is not implemented for other entities).")
+        if key == 0:
+            return InputPeerSelf()
+        raise KeyError("Entity not found in DbSession cache (caching is not implemented).")
 
     def cache_file(self, md5_digest: bytes, file_size: int, instance: Any) -> None: pass
 
