@@ -5,7 +5,7 @@
 **Основной синтаксис:**
 
 ```bash
-docker-compose exec userbot python3 -m scripts.manage_account <команда> [аргументы]
+docker compose exec userbot python3 -m scripts.manage_account <команда> [аргументы]
 ```
 
 ## Команды

@@ -93,10 +93,10 @@ volumes:
 
 #### Шаг 4: Запустите DeBot
 
-Теперь, когда оба файла готовы, выполните одну команду:
+Теперь, когда оба файла готовы, выполните одну команду. Обратите внимание, что современные версии Docker используют `docker compose` (с пробелом).
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 Docker скачает готовый образ DeBot, образ PostgreSQL и запустит всё в фоновом режиме.
@@ -121,5 +121,5 @@ Docker скачает готовый образ DeBot, образ PostgreSQL и 
     ```
 3.  **Запустите DeBot:**
     ```bash
-    docker-compose up -d --build
+    docker compose up -d --build
     ```

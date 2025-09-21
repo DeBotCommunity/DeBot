@@ -1,7 +1,8 @@
 from sqlalchemy import (
-    Column, Integer, String, Boolean, ForeignKey, BIGINT, TEXT, BYTEA,
-    TIMESTAMP, JSONB, UniqueConstraint
+    Column, Integer, String, Boolean, ForeignKey, BIGINT, TEXT,
+    TIMESTAMP, UniqueConstraint
 )
+from sqlalchemy.dialects.postgresql import BYTEA, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 
