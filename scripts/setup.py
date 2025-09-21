@@ -94,14 +94,15 @@ def main():
     with open(template_path, "r") as f:
         compose_template = f.read()
 
-    userbot_service_definition = "build: ." if deploy_type == "source" else f"image: {prompt_user('Enter Docker image', 'debotcommunity/debot:latest')}"
+    userbot_service_definition = "build: ." if deploy_type == "source" else f"image: whn0thacked/debot:latest"
     compose_content = compose_template.replace("${USERBOT_SERVICE_DEFINITION}", userbot_service_definition)
 
     if not use_docker_db:
-        compose_content = re.sub(r'\s*depends_on:\s+- db', '', compose_content)
+        # Remove the 'db' service and dependencies on it
+        compose_content = re.sub(r'^\s*depends_on:.*?service_healthy\s*$', '', compose_content, flags=re.DOTALL | re.MULTILINE)
         compose_content = re.sub(r'^\s*db:.*?(?=\n\S|\Z)', '', compose_content, flags=re.DOTALL | re.MULTILINE)
-        if 'postgres_data:' in compose_content and 'userbot:' not in compose_content:
-             compose_content = re.sub(r'^\s*volumes:\s*postgres_data:', '', compose_content, flags=re.MULTILINE)
+        # Remove the volumes key if it's now empty and only contains postgres_data
+        compose_content = re.sub(r'^\s*volumes:\s*\n\s*postgres_data:\s*$', '', compose_content, flags=re.MULTILINE)
 
     compose_file_path = project_root / "docker-compose.yml"
     with open(compose_file_path, "w") as f:
@@ -109,11 +110,11 @@ def main():
     print(f"✅ Docker Compose file generated: {compose_file_path}")
 
     print("\n--- Setup Complete! ---")
-    print("To start the userbot, run: 'docker-compose up -d'")
+    print("To start the userbot, run: 'docker compose up -d'")
     print("To add your first account, use the management script:")
-    print(f"\n  docker-compose exec userbot python3 -m scripts.manage_account add <account_name>\n")
+    print(f"\n  docker compose exec userbot python3 -m scripts.manage_account add <account_name>\n")
     print("After adding an account, restart the bot to activate the new session:")
-    print("\n  docker-compose restart userbot\n")
+    print("\n  docker compose restart userbot\n")
 
 if __name__ == "__main__":
     main()

@@ -21,7 +21,7 @@ cd my_debot
 
 #### Шаг 2: Создайте файл `docker-compose.yml`
 
-Внутри папки `my_debot` создайте файл с именем `docker-compose.yml` и скопируйте в него следующее содержимое:
+Внутри папки `my_debot` создайте файл с именем `docker-compose.yml` и скопируйте в него следующее содержимое. Он уже включает проверку готовности базы данных (`healthcheck`) для стабильного запуска.
 
 ```yaml
 services:
@@ -36,7 +36,8 @@ services:
       # Эта папка будет создана на вашем хосте для хранения модулей
       - ./userbot/modules:/app/userbot/modules
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     command: ["python3", "-m", "userbot"]
 
   db:
@@ -51,6 +52,11 @@ services:
     ports:
       - "${DB_PORT}:5432"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

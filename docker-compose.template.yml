@@ -7,11 +7,11 @@ services:
     restart: unless-stopped
     volumes:
       - ./userbot/modules:/app/userbot/modules
-    # 'depends_on' ensures the database is ready before the userbot starts.
-    # This will be removed by setup.py if an external database is used.
+    # 'depends_on' теперь ждет, пока сервис 'db' станет "здоровым" (healthy),
+    # а не просто запустится. Это решает проблему race condition.
     depends_on:
-      - db
-    # The command no longer needs --accounts, as the bot runs all enabled accounts from the DB
+      db:
+        condition: service_healthy
     command: ["python3", "-m", "userbot"]
 
   db:
@@ -24,10 +24,15 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      # Exposes the database port to the host machine.
-      # Format is HOST_PORT:CONTAINER_PORT
       - "${DB_PORT}:5432"
     restart: unless-stopped
+    # Healthcheck проверяет, готова ли база данных принимать соединения,
+    # прежде чем позволить зависимым сервисам (userbot) стартовать.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
