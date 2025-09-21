@@ -1,11 +1,16 @@
 import logging
+import asyncio
+import sys
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
-from userbot.src.config import DB_TYPE, DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME
+from userbot.src.config import (
+    DB_TYPE, DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME,
+    DB_CONN_RETRIES, DB_CONN_RETRY_DELAY
+)
 from userbot.src.db.models import Base
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -31,11 +36,33 @@ except Exception as e:
 
 async def initialize_database() -> None:
     """
-    Creates all tables in the database based on the SQLAlchemy models.
+    Connects to the database and creates all tables based on the SQLAlchemy models.
+    Includes a retry mechanism to handle database startup delays.
     """
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database schema initialization check complete.")
+    for attempt in range(DB_CONN_RETRIES):
+        try:
+            async with async_engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database schema initialization check complete.")
+            return  # Success, exit the function
+        except (ConnectionRefusedError, OSError) as e:
+            if attempt < DB_CONN_RETRIES - 1:
+                logger.warning(
+                    f"Database connection failed (attempt {attempt + 1}/{DB_CONN_RETRIES}): {e}. "
+                    f"Retrying in {DB_CONN_RETRY_DELAY} seconds..."
+                )
+                await asyncio.sleep(DB_CONN_RETRY_DELAY)
+            else:
+                logger.critical(
+                    f"Could not connect to the database after {DB_CONN_RETRIES} attempts. "
+                    "Please ensure the database is running and the .env file is configured correctly."
+                )
+                raise  # Re-raise the final exception to stop the application
+    
+    # This part should not be reachable if all retries fail, but as a safeguard:
+    logger.critical("Exhausted all retries to connect to the database. Exiting.")
+    sys.exit(1)
+
 
 @asynccontextmanager
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

@@ -95,6 +95,8 @@ volumes:
     # --- Application Settings (можно оставить по умолчанию) ---
     LOG_LEVEL=INFO
     GC_INTERVAL_SECONDS=60
+    DB_CONN_RETRIES=5
+    DB_CONN_RETRY_DELAY=5
     ```
 
 #### Шаг 4: Запустите DeBot
