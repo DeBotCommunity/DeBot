@@ -25,7 +25,6 @@ async def add_account(
     app_version: str,
     user_telegram_id: Optional[int] = None
 ) -> Optional[Account]:
-    """Adds a new account to the database with encrypted credentials."""
     try:
         new_account = Account(
             account_name=account_name,
@@ -43,7 +42,7 @@ async def add_account(
         logger.info(f"Added account '{account_name}' with ID: {new_account.account_id}")
         return new_account
     except IntegrityError:
-        logger.warning(f"Account with name '{account_name}' already exists.")
+        logger.warning(f"Account with name '{account_name}' or user_id '{user_telegram_id}' already exists.")
         await db.rollback()
         return None
     except Exception as e:
@@ -52,27 +51,22 @@ async def add_account(
         return None
 
 async def get_account(db: AsyncSession, account_name: str) -> Optional[Account]:
-    """Retrieves an account by its name."""
     result = await db.execute(select(Account).where(Account.account_name == account_name))
     return result.scalars().first()
     
 async def get_account_by_user_id(db: AsyncSession, user_id: int) -> Optional[Account]:
-    """Retrieves an account by its Telegram User ID."""
     result = await db.execute(select(Account).where(Account.user_telegram_id == user_id))
     return result.scalars().first()
 
 async def get_all_accounts(db: AsyncSession) -> List[Account]:
-    """Retrieves all accounts from the database, with their sessions for status display."""
     result = await db.execute(select(Account).options(selectinload(Account.session)).order_by(Account.account_id))
     return result.scalars().all()
 
 async def get_all_active_accounts(db: AsyncSession) -> List[Account]:
-    """Retrieves all enabled accounts from the database."""
     result = await db.execute(select(Account).where(Account.is_enabled == True))
     return result.scalars().all()
     
 async def delete_account(db: AsyncSession, account_name: str) -> bool:
-    """Deletes an account by its name."""
     account = await get_account(db, account_name)
     if not account:
         return False
@@ -81,7 +75,6 @@ async def delete_account(db: AsyncSession, account_name: str) -> bool:
     return True
 
 async def toggle_account_status(db: AsyncSession, account_name: str) -> Optional[bool]:
-    """Toggles the is_enabled status of an account."""
     account = await get_account(db, account_name)
     if not account:
         return None
@@ -90,14 +83,12 @@ async def toggle_account_status(db: AsyncSession, account_name: str) -> Optional
     return account.is_enabled
     
 async def update_account_lang(db: AsyncSession, account_id: int, lang_code: str) -> bool:
-    """Updates the language for a specific account."""
     stmt = update(Account).where(Account.account_id == account_id).values(lang_code=lang_code)
     result = await db.execute(stmt)
     return result.rowcount > 0
 
 # --- Session CRUD ---
 async def get_session(db: AsyncSession, account_id: int) -> Optional[Session]:
-    """Retrieves a session for a given account and decrypts its auth key."""
     result = await db.execute(select(Session).where(Session.account_id == account_id))
     session = result.scalars().first()
     if session and session.auth_key_data:
@@ -109,7 +100,6 @@ async def get_session(db: AsyncSession, account_id: int) -> Optional[Session]:
     return session
 
 async def add_or_update_session(db: AsyncSession, **kwargs) -> Optional[Session]:
-    """Adds or updates a session in the database, encrypting the auth key."""
     account_id = kwargs.get("account_id")
     if not account_id: return None
     
@@ -129,37 +119,17 @@ async def add_or_update_session(db: AsyncSession, **kwargs) -> Optional[Session]
     await db.flush()
     return session
 
-async def delete_session(db: AsyncSession, account_id: int) -> bool:
-    """Deletes a session from the database."""
-    stmt = delete(Session).where(Session.account_id == account_id)
-    result = await db.execute(stmt)
-    await db.flush()
-    return result.rowcount > 0
-
 # --- Log CRUD ---
-async def add_log(db: AsyncSession, level: str, message: str, account_id: Optional[int] = None, module_name: Optional[str] = None) -> Optional[Log]:
-    """Adds a log entry to the database."""
+async def add_logs_bulk(db: AsyncSession, logs: List[Dict[str, Any]]) -> None:
+    """Adds a batch of log entries to the database."""
+    if not logs:
+        return
     try:
-        new_log = Log(
-            level=level.upper(),
-            message=message,
-            account_id=account_id,
-            module_name=module_name
-        )
-        db.add(new_log)
+        # SQLAlchemy 2.0 style bulk insert
+        db.add_all([Log(**log_data) for log_data in logs])
         await db.flush()
-        return new_log
     except Exception as e:
-        print(f"CRITICAL: Error adding log to database: {e}")
-        return None
-
-async def get_logs(db: AsyncSession, account_id: Optional[int] = None, limit: int = 100, level: Optional[str] = None) -> List[Log]:
-    """Retrieves logs from the database with optional filters."""
-    stmt = select(Log).order_by(Log.timestamp.desc()).limit(limit)
-    if account_id is not None:
-        stmt = stmt.where(Log.account_id == account_id)
-    if level is not None:
-        stmt = stmt.where(Log.level == level.upper())
-    
-    result = await db.execute(stmt)
-    return result.scalars().all()
+        # Fallback to printing if bulk DB logging fails
+        print(f"CRITICAL: Error during bulk log insert: {e}")
+        for log in logs:
+            print(f"Fallback Log: [{log.get('level')}] {log.get('message')}")

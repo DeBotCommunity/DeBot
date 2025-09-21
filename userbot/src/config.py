@@ -16,7 +16,6 @@ DB_PORT: int = int(os.getenv("DB_PORT", 5432))
 DB_USER: str = os.getenv("DB_USER", "userbot")
 DB_PASS: str = os.getenv("DB_PASS", "userbot_password")
 DB_NAME: str = os.getenv("DB_NAME", "userbot_db")
-# New: Connection retry settings
 DB_CONN_RETRIES: int = int(os.getenv("DB_CONN_RETRIES", 5))
 DB_CONN_RETRY_DELAY: int = int(os.getenv("DB_CONN_RETRY_DELAY", 5))
 
@@ -24,6 +23,10 @@ DB_CONN_RETRY_DELAY: int = int(os.getenv("DB_CONN_RETRY_DELAY", 5))
 # --- Application Settings ---
 MODULE_FOLDER: str = "userbot.modules"
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
+# New: Logging queue settings
+LOG_QUEUE_INTERVAL_SECONDS: int = int(os.getenv("LOG_QUEUE_INTERVAL_SECONDS", 5))
+LOG_QUEUE_BATCH_SIZE: int = int(os.getenv("LOG_QUEUE_BATCH_SIZE", 50))
+
 
 # --- Scheduler Settings ---
 GC_INTERVAL_SECONDS: int = int(os.getenv("GC_INTERVAL_SECONDS", 60))
