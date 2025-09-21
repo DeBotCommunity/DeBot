@@ -4,6 +4,7 @@ from pathlib import Path
 import getpass
 import argparse
 import logging
+import os
 from typing import Dict, Optional
 
 # Add project root to sys.path
@@ -11,7 +12,7 @@ project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from telethon.sessions import StringSession
+from telethon.sessions import SQLiteSession
 from telethon.errors import SessionPasswordNeededError
 
 from userbot import TelegramClient, _generate_random_device
@@ -33,6 +34,7 @@ async def add_account_logic(args: argparse.Namespace) -> None:
     """
     logger.info(f"--- Adding new account: {args.name} ---")
     
+    session_file: str = f"temp_cli_{args.name}.session"
     temp_client: Optional[TelegramClient] = None
     try:
         async with get_db() as db:
@@ -48,7 +50,7 @@ async def add_account_logic(args: argparse.Namespace) -> None:
                 return
             
             logger.info("Initializing temporary session to verify credentials...")
-            temp_client = TelegramClient(StringSession(), int(api_id), api_hash)
+            temp_client = TelegramClient(SQLiteSession(session_file), int(api_id), api_hash)
             await temp_client.connect()
 
             if not await temp_client.is_user_authorized():
@@ -65,6 +67,8 @@ async def add_account_logic(args: argparse.Namespace) -> None:
             user_id: int = me.user_id
             access_hash: int = me.access_hash
             logger.info(f"Successfully logged in as user ID: {user_id}.")
+
+            await temp_client.disconnect() # Disconnect to ensure session file is fully written
 
             existing_by_id = await db_manager.get_account_by_user_id(db, user_id)
             if existing_by_id:
@@ -128,16 +132,41 @@ async def add_account_logic(args: argparse.Namespace) -> None:
                 proxy_password=proxy_password
             )
             
-            if new_account:
-                logger.info(f"\nSuccess! Account '{args.name}' was added. Restart the bot to activate.")
-            else:
+            if not new_account:
                 logger.error("\nFailed to add the account to the database.")
+                return
+
+            # Now extract session from file and save to DB
+            logger.info("Extracting session data and saving to the database...")
+            reader_session = SQLiteSession(session_file)
+            reader_session.load()
+            
+            update_state = reader_session.get_update_state(0)
+            pts, qts, date_ts, seq, _ = (None, None, None, None, None)
+            if update_state:
+                pts, qts, date_ts, seq, _ = update_state
+
+            await db_manager.add_or_update_session(
+                db,
+                account_id=new_account.account_id,
+                dc_id=reader_session.dc_id,
+                server_address=reader_session.server_address,
+                port=reader_session.port,
+                auth_key_data=reader_session.auth_key.key,
+                takeout_id=reader_session.takeout_id,
+                pts=pts, qts=qts, date=date_ts, seq=seq
+            )
+            
+            logger.info(f"\nSuccess! Account '{args.name}' was added. Restart the bot to activate.")
 
     except Exception as e:
-        logger.error(f"\nAn unexpected error occurred: {e}", exc_info=False)
+        logger.error(f"\nAn unexpected error occurred: {e}", exc_info=True)
     finally:
         if temp_client and temp_client.is_connected():
             await temp_client.disconnect()
+        if os.path.exists(session_file):
+            os.remove(session_file)
+            logger.info(f"Cleaned up temporary session file: {session_file}")
 
 
 async def edit_account_logic(args: argparse.Namespace) -> None:

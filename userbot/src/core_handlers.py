@@ -1,15 +1,16 @@
 import asyncio
 import io
 import logging
+import os
 import shlex
 import subprocess
 import sys
 from datetime import datetime
-from typing import Dict, Any, List, Set
+from typing import Dict, Any, List, Set, Optional
 
 from telethon import events
 from telethon.errors import SessionPasswordNeededError
-from telethon.sessions import StringSession
+from telethon.sessions import SQLiteSession
 
 from userbot import TelegramClient, FAKE, GLOBAL_HELP_INFO, _generate_random_device, ACTIVE_CLIENTS
 from userbot.src.db.session import get_db
@@ -73,7 +74,9 @@ async def list_accounts_handler(event: events.NewMessage.Event):
     await event.edit("\n".join(response_lines), parse_mode="html")
 
 async def add_account_handler(event: events.NewMessage.Event):
-    account_name = event.pattern_match.group(1)
+    account_name: str = event.pattern_match.group(1)
+    session_file: str = f"temp_add_{account_name}.session"
+    temp_client: Optional[TelegramClient] = None
     
     try:
         async with event.client.conversation(event.chat_id, timeout=600) as conv:
@@ -83,29 +86,29 @@ async def add_account_handler(event: events.NewMessage.Event):
             api_hash_resp = await conv.get_response(); api_hash = api_hash_resp.text.strip()
             
             await conv.send_message(await event.client.get_string("verifying_creds"))
-            temp_client = TelegramClient(StringSession(), int(api_id), api_hash)
+            temp_client = TelegramClient(SQLiteSession(session_file), int(api_id), api_hash)
             
-            try:
-                await temp_client.connect()
-                if not await temp_client.is_user_authorized():
-                    phone_resp = await conv.send_message("Требуется вход. Введите номер телефона:")
-                    phone = (await conv.get_response()).text.strip()
-                    await phone_resp.delete()
-                    await temp_client.send_code_request(phone)
-                    code_resp = await conv.send_message("Код отправлен. Введите его:")
-                    code = (await conv.get_response()).text.strip()
-                    await code_resp.delete()
+            await temp_client.connect()
+            if not await temp_client.is_user_authorized():
+                phone_resp = await conv.send_message("Требуется вход. Введите номер телефона:")
+                phone = (await conv.get_response()).text.strip()
+                await phone_resp.delete()
+                await temp_client.send_code_request(phone)
+                code_resp = await conv.send_message("Код отправлен. Введите его:")
+                code = (await conv.get_response()).text.strip()
+                await code_resp.delete()
+                try:
                     await temp_client.sign_in(phone=phone, code=code)
-            except SessionPasswordNeededError:
-                pass_resp = await conv.send_message(await event.client.get_string("prompt_2fa"))
-                two_fa_pass = (await conv.get_response()).text.strip()
-                await pass_resp.delete()
-                await temp_client.sign_in(password=two_fa_pass)
+                except SessionPasswordNeededError:
+                    pass_resp = await conv.send_message(await event.client.get_string("prompt_2fa"))
+                    two_fa_pass = (await conv.get_response()).text.strip()
+                    await pass_resp.delete()
+                    await temp_client.sign_in(password=two_fa_pass)
             
             me = await temp_client.get_me(input_peer=True)
             user_id = me.user_id
             access_hash = me.access_hash
-            await temp_client.disconnect()
+            await temp_client.disconnect() # Disconnect to save session file properly
 
             async with get_db() as db:
                 existing = await db_manager.get_account_by_user_id(db, user_id)
@@ -133,17 +136,42 @@ async def add_account_handler(event: events.NewMessage.Event):
                     user_telegram_id=user_id,
                     access_hash=access_hash
                 )
+                if not new_acc:
+                    await conv.send_message(await event.client.get_string("add_acc_fail", account_name=account_name))
+                    return
+                
+                # Now extract session data and save it
+                reader_session = SQLiteSession(session_file)
+                reader_session.load()
+                
+                update_state = reader_session.get_update_state(0)
+                pts, qts, date_ts, seq, _ = (None, None, None, None, None)
+                if update_state:
+                    pts, qts, date_ts, seq, _ = update_state
+                
+                await db_manager.add_or_update_session(
+                    db,
+                    account_id=new_acc.account_id,
+                    dc_id=reader_session.dc_id,
+                    server_address=reader_session.server_address,
+                    port=reader_session.port,
+                    auth_key_data=reader_session.auth_key.key,
+                    takeout_id=reader_session.takeout_id,
+                    pts=pts, qts=qts, date=date_ts, seq=seq
+                )
             
-            if new_acc:
-                await conv.send_message(await event.client.get_string("add_acc_success", account_name=account_name))
-            else:
-                await conv.send_message(await event.client.get_string("add_acc_fail", account_name=account_name))
+            await conv.send_message(await event.client.get_string("add_acc_success", account_name=account_name))
 
     except asyncio.TimeoutError:
         await event.respond(await event.client.get_string("add_acc_timeout"))
     except Exception as e:
         logger.error(f"Error in .addacc handler: {e}", exc_info=True)
         await event.respond(await event.client.get_string("generic_error", error=str(e)))
+    finally:
+        if temp_client and temp_client.is_connected():
+            await temp_client.disconnect()
+        if os.path.exists(session_file):
+            os.remove(session_file)
 
 
 async def delete_account_handler(event: events.NewMessage.Event):
