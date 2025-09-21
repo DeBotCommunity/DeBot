@@ -7,6 +7,7 @@ from faker import Faker
 from telethon import TelegramClient as TelethonTelegramClient, events
 from telethon.sessions import StringSession
 from telethon.errors.rpcerrorlist import UserAlreadyParticipantError
+from python_socks import ProxyType
 
 from userbot.src.config import API_ID, API_HASH, LOG_LEVEL
 from userbot.src.db.session import initialize_database, get_db
@@ -23,7 +24,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 
 # --- Globals ---
 ACTIVE_CLIENTS: Dict[int, "TelegramClient"] = {}
-LOOP: asyncio.AbstractEventLoop = asyncio.get_event_loop()
 FAKE: Faker = Faker()
 GLOBAL_HELP_INFO: Dict[int, Dict[str, str]] = {}
 
@@ -75,7 +75,7 @@ async def db_setup() -> None:
     logger.info("Database schema checked and DB logger attached.")
 
 async def start_individual_client(client: TelegramClient, account: Account) -> None:
-    from userbot.__main__ import (
+    from userbot.src.core_handlers import (
         load_account_modules, help_commands_handler, about_command_handler,
         add_account_handler, delete_account_handler, toggle_account_handler,
         list_accounts_handler, set_lang_handler, addmod_handler, delmod_handler,
@@ -104,7 +104,6 @@ async def start_individual_client(client: TelegramClient, account: Account) -> N
             
             try:
                 await client(JoinChannelRequest('https://t.me/DeBot_userbot'))
-                logger.info(f"Account '{account.account_name}' successfully subscribed to the main channel.")
             except UserAlreadyParticipantError:
                 pass
             except Exception as e:
@@ -143,8 +142,17 @@ async def manage_clients() -> None:
 
         proxy_details = None
         if account.proxy_ip and account.proxy_port and account.proxy_type:
-             # Logic to construct proxy dict for Telethon would go here
-             pass
+             proxy_map = {"http": ProxyType.HTTP, "socks4": ProxyType.SOCKS4, "socks5": ProxyType.SOCKS5}
+             proxy_type_enum = proxy_map.get(account.proxy_type.lower())
+             if proxy_type_enum:
+                 proxy_details = (
+                     proxy_type_enum,
+                     account.proxy_ip,
+                     account.proxy_port,
+                     True,
+                     encryption_manager.decrypt(account.proxy_username).decode() if account.proxy_username else None,
+                     encryption_manager.decrypt(account.proxy_password).decode() if account.proxy_password else None
+                 )
 
         new_client: TelegramClient = TelegramClient(
             session=DbSession(account_id=account.account_id), 
