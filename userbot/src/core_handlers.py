@@ -21,7 +21,8 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 # --- Helper ---
 async def get_account_id_from_client(client) -> int | None:
-    return next((acc_id for acc_id, c in ACTIVE_CLIENTS.items() if c == client), None)
+    # Access the override property directly
+    return client.current_account_id if hasattr(client, 'current_account_id') else None
 
 # --- Module Management ---
 async def load_account_modules(account_id: int, client_instance: TelegramClient, current_help_info: Dict[str, str]):
@@ -75,7 +76,7 @@ async def list_accounts_handler(event: events.NewMessage.Event):
 
 async def add_account_handler(event: events.NewMessage.Event):
     account_name: str = event.pattern_match.group(1)
-    session_file: str = f"temp_add_{account_name}.session"
+    session_file_path: str = f"temp_add_{account_name}.session"
     temp_client: Optional[TelegramClient] = None
     
     try:
@@ -86,7 +87,7 @@ async def add_account_handler(event: events.NewMessage.Event):
             api_hash_resp = await conv.get_response(); api_hash = api_hash_resp.text.strip()
             
             await conv.send_message(await event.client.get_string("verifying_creds"))
-            temp_client = TelegramClient(SQLiteSession(session_file), int(api_id), api_hash)
+            temp_client = TelegramClient(SQLiteSession(session_file_path), int(api_id), api_hash)
             
             await temp_client.connect()
             if not await temp_client.is_user_authorized():
@@ -141,23 +142,13 @@ async def add_account_handler(event: events.NewMessage.Event):
                     return
                 
                 # Now extract session data and save it
-                reader_session = SQLiteSession(session_file)
-                reader_session.load()
-                
-                update_state = reader_session.get_update_state(0)
-                pts, qts, date_ts, seq, _ = (None, None, None, None, None)
-                if update_state:
-                    pts, qts, date_ts, seq, _ = update_state
-                
+                with open(session_file_path, 'rb') as f:
+                    session_bytes: bytes = f.read()
+
                 await db_manager.add_or_update_session(
                     db,
                     account_id=new_acc.account_id,
-                    dc_id=reader_session.dc_id,
-                    server_address=reader_session.server_address,
-                    port=reader_session.port,
-                    auth_key_data=reader_session.auth_key.key,
-                    takeout_id=reader_session.takeout_id,
-                    pts=pts, qts=qts, date=date_ts, seq=seq
+                    session_file=session_bytes
                 )
             
             await conv.send_message(await event.client.get_string("add_acc_success", account_name=account_name))
@@ -170,8 +161,8 @@ async def add_account_handler(event: events.NewMessage.Event):
     finally:
         if temp_client and temp_client.is_connected():
             await temp_client.disconnect()
-        if os.path.exists(session_file):
-            os.remove(session_file)
+        if os.path.exists(session_file_path):
+            os.remove(session_file_path)
 
 
 async def delete_account_handler(event: events.NewMessage.Event):

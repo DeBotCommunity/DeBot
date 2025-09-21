@@ -116,7 +116,7 @@ async def get_all_accounts(db: AsyncSession) -> List[Account]:
 
 async def get_all_active_accounts(db: AsyncSession) -> List[Account]:
     """Retrieves all enabled accounts from the database."""
-    result = await db.execute(select(Account).where(Account.is_enabled == True))
+    result = await db.execute(select(Account).where(Account.is_enabled == True).options(selectinload(Account.session)))
     return result.scalars().all()
     
 async def delete_account(db: AsyncSession, account_name: str) -> bool:
@@ -161,34 +161,35 @@ async def update_account_self_info(account_id: int, user_id: int, access_hash: i
 
 # --- Session CRUD ---
 async def get_session(db: AsyncSession, account_id: int) -> Optional[Session]:
-    """Retrieves a session for a given account and decrypts its auth key."""
+    """Retrieves a session for a given account ID."""
     result = await db.execute(select(Session).where(Session.account_id == account_id))
-    session = result.scalars().first()
-    if session and session.auth_key_data:
-        try:
-            session.auth_key_data = encryption_manager.decrypt(session.auth_key_data)
-        except Exception as e:
-            logger.error(f"Failed to decrypt session auth_key for account {account_id}: {e}")
-            return None
-    return session
+    return result.scalars().first()
 
-async def add_or_update_session(db: AsyncSession, **kwargs) -> Optional[Session]:
-    """Adds or updates a session in the database, encrypting the auth key."""
-    account_id = kwargs.get("account_id")
+async def add_or_update_session(db: AsyncSession, account_id: int, session_file: bytes) -> Optional[Session]:
+    """
+    Adds or updates a session in the database.
+
+    Args:
+        db (AsyncSession): The database session.
+        account_id (int): The ID of the account this session belongs to.
+        session_file (bytes): The raw, unencrypted bytes of the session file.
+
+    Returns:
+        Optional[Session]: The created or updated Session object.
+    """
     if not account_id: return None
     
     result = await db.execute(select(Session).where(Session.account_id == account_id))
     session = result.scalars().first()
     
-    if not session:
-        session = Session(account_id=account_id)
-        db.add(session)
-        
-    for key, value in kwargs.items():
-        if key == "auth_key_data" and value is not None:
-            value = encryption_manager.encrypt(value)
-        setattr(session, key, value)
+    encrypted_session_file = encryption_manager.encrypt(session_file)
     
+    if not session:
+        session = Session(account_id=account_id, session_file=encrypted_session_file)
+        db.add(session)
+    else:
+        session.session_file = encrypted_session_file
+
     session.last_used_at = datetime.now(timezone.utc)
     await db.flush()
     return session

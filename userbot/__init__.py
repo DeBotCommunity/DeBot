@@ -5,13 +5,14 @@ from typing import Dict, Optional, Any, List
 
 from faker import Faker
 from telethon import TelegramClient as TelethonTelegramClient, events
+from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.errors.rpcerrorlist import UserAlreadyParticipantError
 from python_socks import ProxyType
 
 from userbot.src.config import API_ID, API_HASH, LOG_LEVEL
 from userbot.src.db.session import initialize_database, get_db
-from userbot.src.db.models import Account
-from userbot.src.db_session import DbSession
+from userbot.src.db.models import Account, Session
+from userbot.src.memory_session import MemorySession
 from userbot.src.encrypt import encryption_manager
 import userbot.src.db_manager as db_manager
 from userbot.src.log_handler import DBLogHandler
@@ -35,12 +36,11 @@ class TelegramClient(TelethonTelegramClient):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.lang_code: str = 'ru'
+        self.account_id_override: Optional[int] = kwargs.get('account_id_override')
 
     @property
     def current_account_id(self) -> Optional[int]:
-        if hasattr(self, 'session') and isinstance(self.session, DbSession):
-            return self.session.account_id
-        return None
+        return self.account_id_override
     
     async def get_string(self, key: str, module_name: Optional[str] = None, **kwargs) -> str:
         return translator.get_string(self.lang_code, key, module_name, **kwargs)
@@ -139,21 +139,29 @@ async def manage_clients() -> None:
                      encryption_manager.decrypt(account.proxy_username).decode() if account.proxy_username else None,
                      encryption_manager.decrypt(account.proxy_password).decode() if account.proxy_password else None
                  )
+        
+        session_instance: MemorySession
+        if account.session and account.session.session_file:
+            try:
+                decrypted_session_bytes: bytes = encryption_manager.decrypt(account.session.session_file)
+                session_instance = MemorySession(decrypted_session_bytes)
+            except Exception as e:
+                logger.error(f"Could not decrypt session for '{account.account_name}'. Skipping. Error: {e}")
+                continue
+        else:
+            logger.warning(f"No session file found in DB for account '{account.account_name}'. A new login will be required if client is used directly.")
+            session_instance = MemorySession(None)
 
-        session = DbSession(
-            account_id=account.account_id,
-            user_id=account.user_telegram_id,
-            access_hash=account.access_hash
-        )
 
         new_client: TelegramClient = TelegramClient(
-            session=session, 
+            session=session_instance, 
             api_id=int(acc_api_id), 
             api_hash=acc_api_hash, 
             device_model=account.device_model, 
             system_version=account.system_version, 
             app_version=account.app_version,
-            proxy=proxy_details
+            proxy=proxy_details,
+            account_id_override=account.account_id
         )
         ACTIVE_CLIENTS[account.account_id] = new_client
         tasks.append(start_individual_client(new_client, account))

@@ -2,7 +2,7 @@ from sqlalchemy import (
     Column, Integer, String, Boolean, ForeignKey, BIGINT, TEXT,
     TIMESTAMP, UniqueConstraint
 )
-from sqlalchemy.dialects.postgresql import BYTEA, JSONB
+from sqlalchemy.dialects.postgresql import BYTEA
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 
@@ -43,18 +43,7 @@ class Session(Base):
     __tablename__ = 'sessions'
     session_id = Column(Integer, primary_key=True)
     account_id = Column(Integer, ForeignKey('accounts.account_id', ondelete='CASCADE'), nullable=False, unique=True)
-    dc_id = Column(Integer, nullable=False)
-    server_address = Column(TEXT)
-    port = Column(Integer)
-    auth_key_data = Column(BYTEA)
-    
-    # Update state fields
-    pts = Column(Integer)
-    qts = Column(Integer)
-    date = Column(BIGINT)
-    seq = Column(Integer)
-    takeout_id = Column(BIGINT)
-    
+    session_file = Column(BYTEA, nullable=False)
     last_used_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
 
@@ -80,7 +69,7 @@ class AccountModule(Base):
     module_id = Column(Integer, ForeignKey('modules.module_id', ondelete='CASCADE'), nullable=False)
     is_active = Column(Boolean, default=True)
     is_trusted = Column(Boolean, default=False)
-    configuration = Column(JSONB)
+    configuration = Column(BYTEA) # Changed to BYTEA for encrypted JSON
     activated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP(timezone=True), onupdate=func.now())
 
