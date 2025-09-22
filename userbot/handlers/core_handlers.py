@@ -4,8 +4,10 @@ import json
 import logging
 import os
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import importlib
 from datetime import datetime
@@ -18,23 +20,38 @@ from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import SQLiteSession
 from telethon.tl.functions.updates import GetStateRequest
 
-from userbot import TelegramClient, FAKE, GLOBAL_HELP_INFO, _generate_random_device, TelegramClient
-from userbot.src.db.session import get_db
-import userbot.src.db_manager as db_manager
-from userbot.src.locales import translator
-from userbot.src.module_parser import parse_module_metadata
-from userbot.src.module_client import ModuleClient
-from userbot.src.encrypt import encryption_manager
+from userbot import TelegramClient, FAKE, GLOBAL_HELP_INFO, _generate_random_device
+from userbot.db.session import get_db
+from userbot.db import db_manager
+from userbot.core.locales import translator
+from userbot.utils.module_parser import parse_module_metadata
+from userbot.utils.module_client import ModuleClient
+from userbot.utils.encrypt import encryption_manager
 
 logger: logging.Logger = logging.getLogger(__name__)
 
 # --- Helper ---
 async def get_account_id_from_client(client: TelegramClient) -> Optional[int]:
+    """
+    Safely retrieves the account_id associated with a client instance.
+
+    Args:
+        client (TelegramClient): The client instance.
+
+    Returns:
+        Optional[int]: The account ID if available, otherwise None.
+    """
     return client.current_account_id
 
 # --- Module Management ---
 async def load_account_modules(account_id: int, client: TelegramClient):
-    """Dynamically loads all active modules for a given account."""
+    """
+    Dynamically loads all active modules for a given account.
+
+    Args:
+        account_id (int): The ID of the account for which to load modules.
+        client (TelegramClient): The client instance for this account.
+    """
     logger.info(f"Loading modules for account_id: {account_id}")
     async with get_db() as db:
         modules_to_load = await db_manager.get_active_modules_for_account(db, account_id)
@@ -42,17 +59,16 @@ async def load_account_modules(account_id: int, client: TelegramClient):
     for link in modules_to_load:
         module_name: str = link.module.module_name
         try:
-            py_module = importlib.import_module(f"userbot.modules.{module_name}")
-            importlib.reload(py_module) # Ensure we have the latest version
+            # Modules are now in their own directories
+            py_module = importlib.import_module(f"userbot.modules.{module_name}.{module_name}")
+            importlib.reload(py_module)
 
             if not hasattr(py_module, "register") or not hasattr(py_module, "info"):
                 logger.warning(f"Module '{module_name}' is malformed (missing register or info). Skipping.")
                 continue
 
-            # Populate help info
             GLOBAL_HELP_INFO[account_id][module_name] = py_module.info
 
-            # Security check for trusted modules
             client_to_pass: TelegramClient | ModuleClient = client
             is_trusted_in_db: bool = link.is_trusted
             requires_trust: bool = getattr(py_module, "__trusted__", False)
@@ -73,75 +89,85 @@ async def load_account_modules(account_id: int, client: TelegramClient):
 
 
 async def addmod_handler(event: events.NewMessage.Event):
-    """Handles adding a new module by replying to a .py file."""
-    if not event.is_reply or not event.reply_to or not event.reply_to.message.document:
-        await event.edit(await event.client.get_string("addmod_err_no_reply"))
+    """Handles adding a new module from a Git repository."""
+    repo_url = event.pattern_match.group(1).strip()
+    if not repo_url.startswith("http") or not repo_url.endswith(".git"):
+        await event.edit(await event.client.get_string("addmod_err_invalid_url"))
         return
 
-    doc = event.reply_to.message.document
-    if not doc.mime_type == "text/x-python" and not doc.attributes[0].file_name.endswith(".py"):
-        await event.edit(await event.client.get_string("addmod_err_not_py"))
-        return
+    await event.edit(await event.client.get_string("addmod_cloning"))
     
-    module_name = doc.attributes[0].file_name[:-3]
-    await event.edit(await event.client.get_string("addmod_downloading", name=module_name))
-    
-    # Download and parse
-    temp_path = await event.client.download_media(event.reply_to.message)
-    with open(temp_path, "r", encoding="utf-8") as f:
-        source_code = f.read()
-    
-    metadata, error = parse_module_metadata(source_code)
-    if error:
-        os.remove(temp_path)
-        await event.edit(await event.client.get_string("addmod_err_parse", error=error))
-        return
-
-    # Install requirements
-    if metadata.get("requires"):
-        await event.edit(await event.client.get_string("addmod_installing_deps", name=module_name))
+    with tempfile.TemporaryDirectory() as temp_dir:
         try:
             process = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "pip", "install", *metadata["requires"],
+                "git", "clone", "--depth=1", repo_url, temp_dir,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             stdout, stderr = await process.communicate()
             if process.returncode != 0:
-                os.remove(temp_path)
-                await event.edit(await event.client.get_string("addmod_err_deps", error=stderr.decode()))
+                await event.edit(await event.client.get_string("addmod_err_clone", error=stderr.decode()))
                 return
+
+            py_files = [p for p in Path(temp_dir).glob("*.py") if p.name != "__init__.py"]
+            if len(py_files) != 1:
+                await event.edit(await event.client.get_string("addmod_err_structure", count=len(py_files)))
+                return
+
+            module_file = py_files[0]
+            module_name = module_file.stem
+            
+            with open(module_file, "r", encoding="utf-8") as f:
+                source_code = f.read()
+            
+            metadata, error = parse_module_metadata(source_code)
+            if error:
+                await event.edit(await event.client.get_string("addmod_err_parse", error=error))
+                return
+
+            if metadata.get("requires"):
+                await event.edit(await event.client.get_string("addmod_installing_deps", name=module_name))
+                pip_process = await asyncio.create_subprocess_exec(
+                    sys.executable, "-m", "pip", "install", *metadata["requires"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                _, pip_stderr = await pip_process.communicate()
+                if pip_process.returncode != 0:
+                    await event.edit(await event.client.get_string("addmod_err_deps", error=pip_stderr.decode()))
+                    return
+
+            final_path_dir = Path("userbot/modules") / module_name
+            if final_path_dir.exists():
+                shutil.rmtree(final_path_dir)
+            shutil.move(temp_dir, final_path_dir)
+            
+            final_path_file = final_path_dir / module_file.name
+
+            account_id = await get_account_id_from_client(event.client)
+            async with get_db() as db:
+                module_info_dict = metadata.get("info", {})
+                module_obj = await db_manager.get_or_create_module(
+                    db, module_name, str(final_path_file), repo_url,
+                    module_info_dict.get("descriptions", ["No description"])[0], 
+                    module_info_dict.get("version")
+                )
+                
+                initial_config = None
+                if isinstance(metadata.get("config"), dict):
+                    defaults = {k: v.get("default") for k, v in metadata["config"].items()}
+                    config_bytes = json.dumps(defaults).encode('utf-8')
+                    initial_config = encryption_manager.encrypt(config_bytes)
+
+                await db_manager.link_module_to_account(db, account_id, module_obj.module_id, initial_config)
+
+            final_msg = await event.client.get_string("addmod_success", name=module_name)
+            if metadata.get("trusted"):
+                final_msg += "\n" + await event.client.get_string("addmod_warn_trusted", name=module_name)
+            
+            await event.edit(final_msg)
+
         except Exception as e:
-            os.remove(temp_path)
-            await event.edit(await event.client.get_string("addmod_err_deps", error=str(e)))
-            return
-
-    # Move to permanent location and save to DB
-    final_path = Path("userbot/modules") / f"{module_name}.py"
-    os.rename(temp_path, final_path)
-    
-    account_id = await get_account_id_from_client(event.client)
-    async with get_db() as db:
-        module_info = metadata.get("info", {})
-        module_obj = await db_manager.get_or_create_module(
-            db, module_name, str(final_path), 
-            module_info.get("descriptions", ["No description"])[0], 
-            module_info.get("version")
-        )
-        
-        # Check for default config
-        initial_config = None
-        if isinstance(metadata.get("config"), dict):
-            defaults = {k: v.get("default") for k, v in metadata["config"].items()}
-            config_bytes = json.dumps(defaults).encode('utf-8')
-            initial_config = encryption_manager.encrypt(config_bytes)
-
-        await db_manager.link_module_to_account(db, account_id, module_obj.module_id, initial_config)
-
-    final_msg = await event.client.get_string("addmod_success", name=module_name)
-    if metadata.get("trusted"):
-        final_msg += "\n" + await event.client.get_string("addmod_warn_trusted", name=module_name)
-    
-    await event.edit(final_msg)
+            logger.error(f"Error in addmod handler: {e}", exc_info=True)
+            await event.edit(await event.client.get_string("generic_error", error=str(e)))
 
 
 async def delmod_handler(event: events.NewMessage.Event):
@@ -180,7 +206,6 @@ async def trustmod_handler(event: events.NewMessage.Event):
         if success:
             await event.edit(await event.client.get_string("trustmod_success", name=module_name))
         else:
-            # This case is unlikely if previous checks passed
             await event.edit(await event.client.get_string("generic_error", error="Failed to update trust status."))
 
 
@@ -206,9 +231,8 @@ async def configmod_handler(event: events.NewMessage.Event):
             await event.edit(await event.client.get_string("configmod_no_config", name=module_name))
             return
 
-        # Simple type casting based on original default value's type
         try:
-            py_module = importlib.import_module(f"userbot.modules.{module_name}")
+            py_module = importlib.import_module(f"userbot.modules.{module_name}.{module_name}")
             default_val = py_module.__config__[key]["default"]
             if isinstance(default_val, bool):
                 new_value = value.lower() in ("true", "1", "t", "yes")
@@ -232,19 +256,82 @@ async def configmod_handler(event: events.NewMessage.Event):
             await event.edit(await event.client.get_string("configmod_success", key=key, name=module_name, value=new_value))
         else:
             await event.edit(await event.client.get_string("generic_error", error="Failed to save new configuration."))
+    
+async def update_module_handler(event: events.NewMessage.Event):
+    module_name = event.pattern_match.group(1).strip()
+    await event.edit(await event.client.get_string("updatemodule_starting", name=module_name))
+
+    async with get_db() as db:
+        module = await db_manager.get_module_by_name(db, module_name)
+        if not module or not module.git_repo_url:
+            await event.edit(await event.client.get_string("updatemodule_not_git", name=module_name))
+            return
+    
+    module_dir = Path(module.module_path).parent
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "git", "-C", str(module_dir), "pull",
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            if "Already up to date" in stdout.decode():
+                await event.edit(await event.client.get_string("updatemodule_no_changes", name=module_name))
+            else:
+                await event.edit(await event.client.get_string("updatemodule_success", name=module_name))
+        else:
+            await event.edit(await event.client.get_string("updatemodule_pull_failed_retrying", name=module_name))
+            shutil.rmtree(module_dir)
+            
+            clone_process = await asyncio.create_subprocess_exec(
+                "git", "clone", "--depth=1", module.git_repo_url, str(module_dir),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            _, clone_stderr = await clone_process.communicate()
+
+            if clone_process.returncode == 0:
+                await event.edit(await event.client.get_string("updatemodule_success", name=module_name))
+            else:
+                await event.edit(await event.client.get_string("updatemodule_clone_failed", name=module_name, error=clone_stderr.decode()))
+
+    except Exception as e:
+        await event.edit(await event.client.get_string("generic_error", error=str(e)))
 
 
 async def update_modules_handler(event: events.NewMessage.Event):
-    await event.edit(await event.client.get_string("updatemodules_syncing"))
-    async with get_db() as db:
-        new_modules = await db_manager.sync_modules_from_filesystem(db)
+    await event.edit(await event.client.get_string("updatemodules_starting"))
     
-    if not new_modules:
-        await event.edit(await event.client.get_string("updatemodules_none_found"))
-    else:
-        await event.edit(await event.client.get_string("updatemodules_found", modules="\n".join(f"- `{m}`" for m in new_modules)))
+    async with get_db() as db:
+        modules = await db_manager.get_all_updatable_modules(db)
 
-# --- Other handlers below are complete and do not require changes ---
+    if not modules:
+        await event.edit(await event.client.get_string("updatemodules_none_found"))
+        return
+    
+    report = []
+    for module in modules:
+        module_dir = Path(module.module_path).parent
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "git", "-C", str(module_dir), "pull",
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, _ = await process.communicate()
+            output = stdout.decode()
+            if "Already up to date" in output:
+                report.append(f"✅ `{module.module_name}`: " + await event.client.get_string("updatemodule_status_latest"))
+            else:
+                report.append(f"🔄 `{module.module_name}`: " + await event.client.get_string("updatemodule_status_updated"))
+        except Exception:
+            report.append(f"❌ `{module.module_name}`: " + await event.client.get_string("updatemodule_status_failed"))
+
+    await event.edit(
+        await event.client.get_string("updatemodules_finished") + "\n\n" + "\n".join(report),
+        parse_mode="markdown"
+    )
+
 async def logs_handler(event: events.NewMessage.Event):
     await event.edit(await event.client.get_string("logs_processing"))
     
@@ -496,7 +583,7 @@ async def help_commands_handler(event: events.NewMessage.Event):
             ".addacc": "help_ext_addacc", ".delacc": "help_ext_delacc", ".toggleacc": "help_ext_toggleacc",
             ".setlang": "help_ext_setlang", ".logs": "help_ext_logs", ".about": "help_ext_about",
             ".addmod": "help_ext_addmod", ".delmod": "help_ext_delmod", ".trustmod": "help_ext_trustmod",
-            ".configmod": "help_ext_configmod", ".updatemodules": "help_ext_updatemodules",
+            ".configmod": "help_ext_configmod", ".updatemodule": "help_ext_updatemodule", ".updatemodules": "help_ext_updatemodules",
         }
         for core_cmd, locale_key in core_commands_ext.items():
             if cmd.startswith(core_cmd):
@@ -518,11 +605,11 @@ async def help_commands_handler(event: events.NewMessage.Event):
         ("Управление", ".listaccs", "help_listaccs"), ("Управление", ".addacc <name>", "help_addacc"),
         ("Управление", ".delacc <name>", "help_delacc"), ("Управление", ".toggleacc <name>", "help_toggleacc"),
         ("Управление", ".setlang <code|url>", "help_setlang"),
-        ("Модули", ".addmod", "help_addmod"), ("Модули", ".delmod <name>", "help_delmod"),
+        ("Модули", ".addmod <url>", "help_addmod"), ("Модули", ".delmod <name>", "help_delmod"),
         ("Модули", ".trustmod <name>", "help_trustmod"),("Модули", ".configmod <...>", "help_configmod"),
+        ("Модули", ".updatemodule <name>", "help_updatemodule"), ("Модули", ".updatemodules", "help_updatemodules"),
         ("Утилиты", ".ping", "help_ping"), ("Утилиты", ".restart", "help_restart"),
-        ("Утилиты", ".logs", "help_logs"),("Утилиты", ".updatemodules", "help_updatemodules"),
-        ("Утилиты", ".about", "help_about"),
+        ("Утилиты", ".logs", "help_logs"),("Утилиты", ".about", "help_about"),
     ]
     for category, pattern, key in core_commands:
         if category not in categories:

@@ -41,7 +41,7 @@ ENCRYPTION_KEY = os.getenv(ENCRYPTION_KEY_ENV_VAR)
 if not ENCRYPTION_KEY:
     print(f"Critical Error: The environment variable '{ENCRYPTION_KEY_ENV_VAR}' is not set.", file=sys.stderr)
     print("This variable must contain a valid Fernet encryption key.", file=sys.stderr)
-    print(f"You can generate a new key by running: python -c 'from userbot.src.encrypt import EncryptionManager; print(EncryptionManager.generate_key())'", file=sys.stderr)
+    print(f"You can generate a new key by running: python -c 'from userbot.utils.encrypt import EncryptionManager; print(EncryptionManager.generate_key())'", file=sys.stderr)
     sys.exit(1)
 
 try:

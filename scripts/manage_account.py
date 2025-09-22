@@ -5,7 +5,7 @@ import getpass
 import argparse
 import logging
 import os
-from typing import Dict, Optional, Coroutine, Any, Callable
+from typing import Dict, Optional, Coroutine, Any, Callable, List
 
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parent.parent
@@ -17,17 +17,17 @@ from telethon.errors import SessionPasswordNeededError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from userbot import TelegramClient, _generate_random_device
-from userbot.src.db.session import get_db, initialize_database
-import userbot.src.db_manager as db_manager
-from userbot.src.encrypt import encryption_manager
-from userbot.src.db.models import Account
+from userbot.db.session import get_db, initialize_database
+from userbot.db import db_manager
+from userbot.utils.encrypt import encryption_manager
+from userbot.db.models import Account
 
 logging.basicConfig(level=logging.WARNING, format='%(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('manage_account_cli')
 logger.setLevel(logging.INFO)
 
 async def add_account_logic(args: argparse.Namespace) -> None:
-    # ... (Implementation from previous correct response remains unchanged)
+    """Handles the logic for adding a new account with a full interactive session."""
     logger.info(f"--- Adding new account: {args.name} ---")
     
     session_file_path: str = f"temp_cli_{args.name}.session"
@@ -81,7 +81,7 @@ async def add_account_logic(args: argparse.Namespace) -> None:
                 app_version: str = input("Enter app version: ").strip()
             else:
                 device_details: Dict[str, str] = _generate_random_device()
-                device_model, system_version, app_version = device_details.values()
+                device_model, system_version, app_version = device_details['device_model'], device_details['system_version'], device_details['app_version']
                 logger.info("Generated random device details.")
 
             proxy_type: Optional[str] = None
@@ -214,22 +214,18 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="DeBot Account Management CLI")
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
-    # Add command
     parser_add = subparsers.add_parser("add", help="Add a new account via interactive login")
     parser_add.add_argument("name", help="Unique name for the new account")
     parser_add.set_defaults(func=add_account_logic)
 
-    # Delete command
     parser_delete = subparsers.add_parser("delete", help="Permanently delete an account")
     parser_delete.add_argument("name", help="Name of the account to delete")
     parser_delete.set_defaults(func=delete_account_logic)
 
-    # Toggle command
     parser_toggle = subparsers.add_parser("toggle", help="Enable or disable an account")
     parser_toggle.add_argument("name", help="Name of the account to toggle")
     parser_toggle.set_defaults(func=toggle_account_logic)
 
-    # Edit command
     parser_edit = subparsers.add_parser("edit", help="Edit properties of an existing account")
     parser_edit.add_argument("name", help="Name of the account to edit")
     parser_edit.add_argument("--lang", help="Set a new language code (e.g., en)")

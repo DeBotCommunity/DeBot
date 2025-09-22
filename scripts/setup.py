@@ -78,9 +78,6 @@ def main():
         'LOG_RETENTION_DAYS=30',
         'GC_INTERVAL_SECONDS=3600',
         '',
-        '# --- Auto Update (only for "image" deployment) ---',
-        'AUTO_UPDATE_ENABLED=False',
-        'AUTO_UPDATE_INTERVAL_MINUTES=1440',
     ]
     
     env_file_path = project_root / ".env"

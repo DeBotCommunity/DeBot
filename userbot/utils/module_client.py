@@ -15,7 +15,7 @@ class ModuleClient:
 
     _FORBIDDEN_ATTRS: Set[str] = {
         'session', 'log_out', '__call__', 'disconnected',
-        'is_connected', 'connect', 'disconnect', 'save'
+        'is_connected', 'connect', 'disconnect', 'save', 'get_all_clients'
     }
 
     def __init__(self, real_client: TelethonTelegramClient):

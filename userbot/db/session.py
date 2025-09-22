@@ -11,7 +11,7 @@ from userbot.core.config import (
     DB_TYPE, DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME,
     DB_CONN_RETRIES, DB_CONN_RETRY_DELAY
 )
-from userbot.src.db.models import Base
+from userbot.db.models import Base
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ async def initialize_database() -> None:
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("Database schema initialization check complete.")
             return  # Success, exit the function
-        except (ConnectionRefusedError, OSError) as e:
+        except (ConnectionRefusedError, OSError, asyncio.TimeoutError) as e:
             if attempt < DB_CONN_RETRIES - 1:
                 logger.warning(
                     f"Database connection failed (attempt {attempt + 1}/{DB_CONN_RETRIES}): {e}. "
