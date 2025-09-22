@@ -7,7 +7,7 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
-from userbot.src.config import (
+from userbot.core.config import (
     DB_TYPE, DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME,
     DB_CONN_RETRIES, DB_CONN_RETRY_DELAY
 )
