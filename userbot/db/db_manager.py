@@ -1,7 +1,6 @@
 import json
 import logging
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 from typing import Optional, Any, List, Dict
 
 from sqlalchemy import select, update, delete, asc, desc
@@ -149,6 +148,23 @@ async def get_active_modules_for_account(db: AsyncSession, account_id: int) -> L
     return result.scalars().all()
 
 # --- Log Management ---
+async def add_logs_bulk(db: AsyncSession, logs: List[Dict[str, Any]]) -> None:
+    """
+    Adds a batch of log entries to the database.
+
+    Args:
+        db (AsyncSession): The database session.
+        logs (List[Dict[str, Any]]): A list of dictionaries, where each
+            dictionary represents a log entry.
+    """
+    if not logs: return
+    try:
+        db.add_all([Log(**log_data) for log_data in logs])
+        await db.flush()
+    except Exception as e:
+        # Fallback to console print if DB fails, to avoid losing logs entirely.
+        print(f"CRITICAL: Error during bulk log insert: {e}")
+
 async def get_logs_advanced(db: AsyncSession, mode: str, limit: int, level: Optional[str] = None, source: Optional[str] = None) -> List[Log]:
     stmt = select(Log)
     if level: stmt = stmt.where(Log.level == level.upper())
