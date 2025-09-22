@@ -10,7 +10,7 @@ project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from userbot.src.encrypt import EncryptionManager
+from userbot.utils.encrypt import EncryptionManager
 
 def prompt_user(prompt_text: str, default: str = None) -> str:
     """Prompts the user for input with an optional default value."""
@@ -74,7 +74,9 @@ def main():
         '',
         '# --- Application Settings ---',
         'LOG_LEVEL=INFO',
-        'GC_INTERVAL_SECONDS=60',
+        'LOG_ROTATION_ENABLED=True',
+        'LOG_RETENTION_DAYS=30',
+        'GC_INTERVAL_SECONDS=3600',
         '',
         '# --- Auto Update (only for "image" deployment) ---',
         'AUTO_UPDATE_ENABLED=False',
@@ -96,13 +98,14 @@ def main():
 
     userbot_service_definition = "build: ." if deploy_type == "source" else f"image: whn0thacked/debot:latest"
     compose_content = compose_template.replace("${USERBOT_SERVICE_DEFINITION}", userbot_service_definition)
+    
+    modules_volume = "    volumes:\n      - ./userbot/modules:/app/userbot/modules" if deploy_type == 'source' else "    volumes:\n      - ./modules:/app/userbot/modules"
+    compose_content = compose_content.replace("${MODULES_VOLUME_DEFINITION}", modules_volume)
 
     if not use_docker_db:
-        # Remove the 'db' service and dependencies on it
-        compose_content = re.sub(r'^\s*depends_on:.*?service_healthy\s*$', '', compose_content, flags=re.DOTALL | re.MULTILINE)
+        compose_content = re.sub(r'^\s*depends_on:.*?service_healthy\s*\n', '', compose_content, flags=re.DOTALL | re.MULTILINE)
         compose_content = re.sub(r'^\s*db:.*?(?=\n\S|\Z)', '', compose_content, flags=re.DOTALL | re.MULTILINE)
-        # Remove the volumes key if it's now empty and only contains postgres_data
-        compose_content = re.sub(r'^\s*volumes:\s*\n\s*postgres_data:\s*$', '', compose_content, flags=re.MULTILINE)
+        compose_content = re.sub(r'^\s*volumes:\s*\n\s*postgres_data:\s*\n', '', compose_content, flags=re.MULTILINE)
 
     compose_file_path = project_root / "docker-compose.yml"
     with open(compose_file_path, "w") as f:

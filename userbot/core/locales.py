@@ -1,9 +1,15 @@
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
+
+import aiohttp
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+# This is the base URL for official language packs.
+# The user needs to create this repository.
+OFFICIAL_LOCALES_REPO_URL: str = "https://raw.githubusercontent.com/DeBotCommunity/locales/main/{lang_code}.json"
 
 class TranslationManager:
     """
@@ -18,7 +24,62 @@ class TranslationManager:
         """
         self.locales_path: Path = Path(locales_dir)
         self.core_locales_path: Path = self.locales_path / "core"
+        self.core_locales_path.mkdir(parents=True, exist_ok=True)
         self._cache: Dict[str, Dict[str, Any]] = {}
+
+    async def load_language_pack(self, identifier: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Downloads and saves a language pack from a URL or an official repository.
+
+        Args:
+            identifier (str): A 2-letter language code or a full URL to a raw JSON file.
+
+        Returns:
+            A tuple containing (lang_code, error_message).
+            `lang_code` is the determined language code if successful, otherwise None.
+            `error_message` is a string describing the error if failed, otherwise None.
+        """
+        url: str
+        lang_code: str
+
+        if identifier.startswith("http"):
+            url = identifier
+            try:
+                # Extract file name from URL, e.g., ".../neko-lang.json" -> "neko-lang"
+                lang_code = Path(url.split('/')[-1]).stem
+            except Exception:
+                return None, "Invalid URL format."
+        else:
+            lang_code = identifier.lower()
+            if not (2 <= len(lang_code) <= 10 and lang_code.isalnum()):
+                 return None, "Invalid language code format."
+            url = OFFICIAL_LOCALES_REPO_URL.format(lang_code=lang_code)
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        return None, f"Could not fetch language file (Status: {response.status})."
+                    
+                    content: str = await response.text()
+                    # Validate that it's valid JSON
+                    json.loads(content) 
+
+            file_path: Path = self.core_locales_path / f"{lang_code}.json"
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            # Clear cache for this file if it exists
+            self._cache.pop(str(file_path), None)
+
+            return lang_code, None
+        except aiohttp.ClientError:
+            return None, "Network error while downloading language pack."
+        except json.JSONDecodeError:
+            return None, "Downloaded file is not valid JSON."
+        except Exception as e:
+            logger.error(f"Unexpected error loading language pack '{identifier}': {e}", exc_info=True)
+            return None, "An unexpected error occurred."
 
     def _load_locale_file(self, path: Path) -> Optional[Dict[str, Any]]:
         """
@@ -75,10 +136,8 @@ class TranslationManager:
         """
         string_val: Optional[str] = None
         
-        # 1. Try module-specific locales
         if module_name:
-            module_locales_path: Path = Path("userbot/modules") / module_name / "locales"
-            # Try requested lang, then ru, then en for the module
+            module_locales_path: Path = Path(f"userbot/modules/{module_name}/locales")
             for lang in (lang_code, 'ru', 'en'):
                 locale_data = self._load_locale_file(module_locales_path / f"{lang}.json")
                 if locale_data and key in locale_data:
@@ -87,7 +146,6 @@ class TranslationManager:
             if string_val:
                 return string_val.format(**kwargs) if kwargs else string_val
 
-        # 2. Try core locales
         for lang in (lang_code, 'ru', 'en'):
             core_locale_data = self._load_locale_file(self.core_locales_path / f"{lang}.json")
             if core_locale_data and key in core_locale_data:
@@ -97,7 +155,6 @@ class TranslationManager:
         if string_val:
             return string_val.format(**kwargs) if kwargs else string_val
 
-        # 3. Fallback
         logger.warning(f"Translation key '{key}' not found for lang '{lang_code}' (module: {module_name}).")
         return key
 

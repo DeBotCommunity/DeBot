@@ -55,7 +55,8 @@ class Module(Base):
     module_name = Column(String(255), unique=True, nullable=False)
     description = Column(TEXT)
     version = Column(String(50))
-    module_path = Column(String(512), nullable=False)
+    module_path = Column(String(512), nullable=False, unique=True)
+    git_repo_url = Column(TEXT)
     added_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
 
     account_modules = relationship("AccountModule", back_populates="module", cascade="all, delete-orphan")
@@ -69,7 +70,7 @@ class AccountModule(Base):
     module_id = Column(Integer, ForeignKey('modules.module_id', ondelete='CASCADE'), nullable=False)
     is_active = Column(Boolean, default=True)
     is_trusted = Column(Boolean, default=False)
-    configuration = Column(BYTEA) # Changed to BYTEA for encrypted JSON
+    configuration = Column(BYTEA)
     activated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP(timezone=True), onupdate=func.now())
 

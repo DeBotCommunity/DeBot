@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
     volumes:
       # Эта папка будет создана на вашем хосте для хранения модулей
-      - ./userbot/modules:/app/userbot/modules
+      - ./modules:/app/userbot/modules
     depends_on:
       db:
         condition: service_healthy
@@ -109,7 +109,7 @@ docker compose up -d
 
 Docker скачает готовый образ DeBot, образ PostgreSQL и запустит всё в фоновом режиме.
 
-**Готово!** Переходите к [следующему шагу: добавлению вашего первого аккаунта](docs/getting-started/first-run.md).
+**Готово!** Переходите к [следующему шагу: добавлению вашего первого аккаунта](first-run.md).
 
 ---
 

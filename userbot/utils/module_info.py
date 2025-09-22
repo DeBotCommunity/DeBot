@@ -1,8 +1,8 @@
 # MODULE METADATA STANDARD:
-# Modules should define an instance of the 'ModuleInfo' class from 'userbot.src.module_info'.
+# Modules should define an instance of the 'ModuleInfo' class from 'userbot.utils.module_info'.
 # This instance should be assigned to a variable named 'info' at the module level.
 # Example in a module (e.g., my_module.py):
-# from userbot.src.module_info import ModuleInfo
+# from userbot.utils.module_info import ModuleInfo
 # info = ModuleInfo(
 #     name="my_module",
 #     category="tools",

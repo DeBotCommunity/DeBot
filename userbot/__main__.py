@@ -2,7 +2,6 @@ import asyncio
 import gc
 import logging
 import sys
-from typing import Dict, Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from rich.console import Console
@@ -11,10 +10,10 @@ from art import text2art
 from userbot import (
     db_setup, manage_clients
 )
-from userbot.src.config import GC_INTERVAL_SECONDS, LOG_QUEUE_INTERVAL_SECONDS, TIMEZONE, LOG_ROTATION_ENABLED, LOG_RETENTION_DAYS
-from userbot.src.db.session import get_db
-import userbot.src.db_manager as db_manager
-from userbot.src.log_handler import log_queue
+from userbot.core.config import GC_INTERVAL_SECONDS, LOG_QUEUE_INTERVAL_SECONDS, TIMEZONE, LOG_ROTATION_ENABLED, LOG_RETENTION_DAYS
+from userbot.db.session import get_db
+from userbot.db import db_manager
+from userbot.core.log_handler import log_queue
 
 # Suppress noisy APScheduler logs
 logging.getLogger('apscheduler').setLevel(logging.WARNING)
