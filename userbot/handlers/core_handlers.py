@@ -627,12 +627,17 @@ async def help_commands_handler(event: events.NewMessage.Event):
         
     if account_id and account_id in GLOBAL_HELP_INFO:
         for mod_name, mod_info in GLOBAL_HELP_INFO[account_id].items():
-            cat_name: str = mod_info.category.capitalize()
-            if cat_name not in categories:
-                categories[cat_name] = []
+            category_key: str = f"help_category_{mod_info.category.lower()}"
+            translated_cat_name: str = await client.get_string(category_key)
+            if translated_cat_name == category_key:
+                translated_cat_name = mod_info.category.capitalize()
+
+            if translated_cat_name not in categories:
+                categories[translated_cat_name] = []
+                
             for i, pattern in enumerate(mod_info.patterns):
                 desc: str = mod_info.descriptions[i]
-                categories[cat_name].append(f"`{pattern}` - {desc}")
+                categories[translated_cat_name].append(f"`{pattern}` - {desc}")
                 
     final_text_parts: List[str] = [await client.get_string("help_header")]
     for i, (category, cmds) in enumerate(categories.items()):
