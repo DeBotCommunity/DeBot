@@ -602,20 +602,29 @@ async def help_commands_handler(event: events.NewMessage.Event):
 
     categories: Dict[str, List[str]] = {}
     core_commands: List[Tuple[str, str, str]] = [
-        ("Управление", ".listaccs", "help_listaccs"), ("Управление", ".addacc <name>", "help_addacc"),
-        ("Управление", ".delacc <name>", "help_delacc"), ("Управление", ".toggleacc <name>", "help_toggleacc"),
-        ("Управление", ".setlang <code|url>", "help_setlang"),
-        ("Модули", ".addmod <url>", "help_addmod"), ("Модули", ".delmod <name>", "help_delmod"),
-        ("Модули", ".trustmod <name>", "help_trustmod"),("Модули", ".configmod <...>", "help_configmod"),
-        ("Модули", ".updatemodule <name>", "help_updatemodule"), ("Модули", ".updatemodules", "help_updatemodules"),
-        ("Утилиты", ".ping", "help_ping"), ("Утилиты", ".restart", "help_restart"),
-        ("Утилиты", ".logs", "help_logs"),("Утилиты", ".about", "help_about"),
+        ("help_category_management", ".listaccs", "help_listaccs"),
+        ("help_category_management", ".addacc <name>", "help_addacc"),
+        ("help_category_management", ".delacc <name>", "help_delacc"),
+        ("help_category_management", ".toggleacc <name>", "help_toggleacc"),
+        ("help_category_management", ".setlang <code|url>", "help_setlang"),
+        ("help_category_modules", ".addmod <url>", "help_addmod"),
+        ("help_category_modules", ".delmod <name>", "help_delmod"),
+        ("help_category_modules", ".trustmod <name>", "help_trustmod"),
+        ("help_category_modules", ".configmod <...>", "help_configmod"),
+        ("help_category_modules", ".updatemodule <name>", "help_updatemodule"),
+        ("help_category_modules", ".updatemodules", "help_updatemodules"),
+        ("help_category_utilities", ".ping", "help_ping"),
+        ("help_category_utilities", ".restart", "help_restart"),
+        ("help_category_utilities", ".logs", "help_logs"),
+        ("help_category_utilities", ".about", "help_about"),
     ]
-    for category, pattern, key in core_commands:
-        if category not in categories:
-            categories[category] = []
-        desc: str = await client.get_string(key)
-        categories[category].append(f"`{pattern}` - {desc}")
+    for category_key, pattern, desc_key in core_commands:
+        translated_category: str = await client.get_string(category_key)
+        if translated_category not in categories:
+            categories[translated_category] = []
+        desc: str = await client.get_string(desc_key)
+        categories[translated_category].append(f"`{pattern}` - {desc}")
+        
     if account_id and account_id in GLOBAL_HELP_INFO:
         for mod_name, mod_info in GLOBAL_HELP_INFO[account_id].items():
             cat_name: str = mod_info.category.capitalize()
@@ -624,6 +633,7 @@ async def help_commands_handler(event: events.NewMessage.Event):
             for i, pattern in enumerate(mod_info.patterns):
                 desc: str = mod_info.descriptions[i]
                 categories[cat_name].append(f"`{pattern}` - {desc}")
+                
     final_text_parts: List[str] = [await client.get_string("help_header")]
     for i, (category, cmds) in enumerate(categories.items()):
         final_text_parts.append(f"\n╭ **{category}**")
