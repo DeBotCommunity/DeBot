@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 
@@ -8,8 +10,9 @@ import aiohttp
 logger: logging.Logger = logging.getLogger(__name__)
 
 # This is the base URL for official language packs.
-# The user needs to create this repository.
 OFFICIAL_LOCALES_REPO_URL: str = "https://raw.githubusercontent.com/DeBotCommunity/locales/main/{lang_code}.json"
+GITHUB_API_OWNER: str = "DeBotCommunity"
+GITHUB_API_REPO: str = "locales"
 
 class TranslationManager:
     """
@@ -28,58 +31,101 @@ class TranslationManager:
         self._cache: Dict[str, Dict[str, Any]] = {}
 
     async def load_language_pack(self, identifier: str) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Downloads and saves a language pack from a URL or an official repository.
+        """Downloads a language pack if the remote version is newer, or loads it.
+
+        Checks the last commit date of the language file in the official GitHub
+        repository against the local file's modification time. If the remote
+        file is newer or the local file does not exist, it's downloaded.
+        If the check fails, it falls back to using the local file if available.
+        If a full URL is provided as an identifier, it's downloaded directly.
 
         Args:
-            identifier (str): A 2-letter language code or a full URL to a raw JSON file.
+            identifier (str): A 2-letter language code (e.g., 'en') or a full URL
+                              to a raw JSON file.
 
         Returns:
             A tuple containing (lang_code, error_message).
             `lang_code` is the determined language code if successful, otherwise None.
             `error_message` is a string describing the error if failed, otherwise None.
         """
-        url: str
-        lang_code: str
-
+        # --- Direct URL Handling ---
         if identifier.startswith("http"):
-            url = identifier
             try:
-                # Extract file name from URL, e.g., ".../neko-lang.json" -> "neko-lang"
-                lang_code = Path(url.split('/')[-1]).stem
-            except Exception:
-                return None, "Invalid URL format."
-        else:
-            lang_code = identifier.lower()
-            if not (2 <= len(lang_code) <= 10 and lang_code.isalnum()):
-                 return None, "Invalid language code format."
-            url = OFFICIAL_LOCALES_REPO_URL.format(lang_code=lang_code)
+                lang_code: str = Path(identifier.split('/')[-1]).stem
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(identifier) as response:
+                        if response.status != 200:
+                            return None, f"Could not fetch from URL (Status: {response.status})."
+                        content: str = await response.text()
+                        json.loads(content)
+                file_path: Path = self.core_locales_path / f"{lang_code}.json"
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                self._cache.pop(str(file_path), None)
+                return lang_code, None
+            except Exception as e:
+                logger.error(f"Failed to process URL language pack '{identifier}': {e}", exc_info=True)
+                return None, "Invalid URL or content."
 
+        # --- Language Code Handling with Update Check ---
+        lang_code = identifier.lower()
+        if not (2 <= len(lang_code) <= 10 and lang_code.isalnum()):
+            return None, "Invalid language code format."
+
+        local_path: Path = self.core_locales_path / f"{lang_code}.json"
+        raw_url: str = OFFICIAL_LOCALES_REPO_URL.format(lang_code=lang_code)
+        
         try:
+            api_url: str = f"https://api.github.com/repos/{GITHUB_API_OWNER}/{GITHUB_API_REPO}/commits"
+            params: Dict[str, str] = {"path": f"{lang_code}.json", "page": "1", "per_page": "1"}
+
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        return None, f"Could not fetch language file (Status: {response.status})."
+                async with session.get(api_url, params=params) as response:
+                    response_json: Any = await response.json()
+                    if response.status != 200 or not isinstance(response_json, list) or not response_json:
+                        if local_path.is_file():
+                            logger.warning(f"Could not check for '{lang_code}' updates. Using local version.")
+                            return lang_code, None
+                        return None, f"Language '{lang_code}' not in remote repo and no local copy."
                     
-                    content: str = await response.text()
-                    # Validate that it's valid JSON
-                    json.loads(content) 
+                    commit_date_str: str = response_json[0]['commit']['committer']['date']
+                    remote_mtime: datetime = datetime.fromisoformat(commit_date_str.replace('Z', '+00:00'))
 
-            file_path: Path = self.core_locales_path / f"{lang_code}.json"
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            # Clear cache for this file if it exists
-            self._cache.pop(str(file_path), None)
+                    should_download: bool = False
+                    if not local_path.is_file():
+                        should_download = True
+                        logger.info(f"Local file for '{lang_code}' not found. Downloading.")
+                    else:
+                        local_mtime_ts: float = local_path.stat().st_mtime
+                        local_mtime: datetime = datetime.fromtimestamp(local_mtime_ts, tz=timezone.utc)
+                        if remote_mtime > local_mtime:
+                            should_download = True
+                            logger.info(f"Remote file for '{lang_code}' is newer. Downloading update.")
+                        else:
+                            logger.info(f"Local file for '{lang_code}' is up-to-date.")
 
-            return lang_code, None
-        except aiohttp.ClientError:
-            return None, "Network error while downloading language pack."
-        except json.JSONDecodeError:
-            return None, "Downloaded file is not valid JSON."
+                    if should_download:
+                        async with session.get(raw_url) as raw_response:
+                            if raw_response.status != 200:
+                                raise aiohttp.ClientError(f"Failed to download raw file, status: {raw_response.status}")
+                            content = await raw_response.text()
+                            json.loads(content)
+                            with open(local_path, 'w', encoding='utf-8') as f:
+                                f.write(content)
+                            os.utime(local_path, (remote_mtime.timestamp(), remote_mtime.timestamp()))
+                            self._cache.pop(str(local_path), None)
+                            logger.info(f"Successfully downloaded and updated '{lang_code}'.")
+
+        except aiohttp.ClientError as e:
+            logger.warning(f"Network error checking for '{lang_code}' updates: {e}. Using local version as fallback.")
+            if not local_path.is_file():
+                return None, "Network error and no local copy available."
         except Exception as e:
-            logger.error(f"Unexpected error loading language pack '{identifier}': {e}", exc_info=True)
-            return None, "An unexpected error occurred."
+            logger.error(f"Unexpected error updating language pack '{identifier}': {e}", exc_info=True)
+            if not local_path.is_file():
+                return None, "Unexpected error and no local copy available."
+        
+        return lang_code, None
 
     def _load_locale_file(self, path: Path) -> Optional[Dict[str, Any]]:
         """
