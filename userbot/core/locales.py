@@ -108,13 +108,12 @@ class TranslationManager:
 
     def get_string(
         self,
-        lang_code: str,
+        language: str,
         key: str,
         module_name: Optional[str] = None,
         **kwargs
     ) -> str:
-        """
-        Retrieves a translated string, applying formatting.
+        """Retrieves a translated string, applying formatting.
 
         This method implements the fallback logic:
         1. Module-specific string in the requested language.
@@ -126,7 +125,7 @@ class TranslationManager:
         7. The key itself as a fallback.
 
         Args:
-            lang_code (str): The desired language code (e.g., 'ru', 'en').
+            language (str): The desired language code (e.g., 'ru', 'en') for the lookup.
             key (str): The key of the string to retrieve.
             module_name (Optional[str]): The name of the module requesting the string.
             **kwargs: Keyword arguments for string formatting.
@@ -138,7 +137,7 @@ class TranslationManager:
         
         if module_name:
             module_locales_path: Path = Path(f"userbot/modules/{module_name}/locales")
-            for lang in (lang_code, 'ru', 'en'):
+            for lang in (language, 'ru', 'en'):
                 locale_data = self._load_locale_file(module_locales_path / f"{lang}.json")
                 if locale_data and key in locale_data:
                     string_val = locale_data[key]
@@ -146,7 +145,7 @@ class TranslationManager:
             if string_val:
                 return string_val.format(**kwargs) if kwargs else string_val
 
-        for lang in (lang_code, 'ru', 'en'):
+        for lang in (language, 'ru', 'en'):
             core_locale_data = self._load_locale_file(self.core_locales_path / f"{lang}.json")
             if core_locale_data and key in core_locale_data:
                 string_val = core_locale_data[key]
@@ -155,7 +154,7 @@ class TranslationManager:
         if string_val:
             return string_val.format(**kwargs) if kwargs else string_val
 
-        logger.warning(f"Translation key '{key}' not found for lang '{lang_code}' (module: {module_name}).")
+        logger.warning(f"Translation key '{key}' not found for lang '{language}' (module: {module_name}).")
         return key
 
 # Global instance

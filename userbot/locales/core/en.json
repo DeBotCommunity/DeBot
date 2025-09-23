@@ -59,6 +59,8 @@
     "help_ext_trustmod": "**Command:** `.trustmod <name>`\n**Argument:** `<name>` - The name of the module.\n\nGrants a module full access to the client, including multi-account management. Use with caution.",
     "help_configmod": "Configure a module",
     "help_ext_configmod": "**Command:** `.configmod <module> <key> <value>`\n\nSets a value for a configuration key in the specified module.",
+    "help_updatemodule": "Update module from Git",
+    "help_ext_updatemodule": "**Command:** `.updatemodule <name>`\n**Argument:** `<name>` - The name of the module to update.\n\nPerforms a `git pull` for the module's repository to fetch the latest version. The module must have been added from a Git repository.",
     "help_ping": "Check latency",
     "help_ext_ping": "**Command:** `.ping`\n\nChecks the latency from your client to the server and from the server to Telegram's API.",
     "help_restart": "Restart the userbot",

@@ -44,6 +44,21 @@ class TelegramClient(TelethonTelegramClient):
         return self.account_id
     
     async def get_string(self, key: str, module_name: Optional[str] = None, **kwargs) -> str:
+        """Retrieves a translated string using the client's current language code.
+
+        This method is a convenience wrapper around the global translator. It automatically
+        uses the `lang_code` associated with this client instance for translation lookups.
+        Any keyword arguments provided are passed down for string formatting.
+
+        Args:
+            key (str): The key of the string to retrieve.
+            module_name (Optional[str]): The name of the module requesting the string,
+                                         for module-specific translations.
+            **kwargs: Keyword arguments for string formatting.
+
+        Returns:
+            str: The translated and formatted string.
+        """
         return translator.get_string(self.lang_code, key, module_name, **kwargs)
     
     def get_all_clients(self) -> List["TelegramClient"]:
